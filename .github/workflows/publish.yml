@@ -1,0 +1,69 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (skip actual upload)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/rdbpython/
+
+    permissions:
+      id-token: write  # IMPORTANT: Needed for Trusted Publisher (OIDC)
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build all wheels
+        uses: pypa/cibuildwheel@v2.22
+
+      - name: Build sdist
+        run: |
+          pip install build
+          python -m build --sdist
+
+      - name: List distributions
+        run: |
+          ls -lh wheelhouse/ dist/
+          echo "Total wheels: $(ls -1 wheelhouse/*.whl 2>/dev/null | wc -l)"
+          echo "Total sdist: $(ls -1 dist/*.tar.gz 2>/dev/null | wc -l)"
+
+      - name: Publish to PyPI
+        if: ${{ !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: wheelhouse/
+          skip-existing: true
+          verbose: true
+
+      - name: Publish sdist to PyPI
+        if: ${{ !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          skip-existing: true
+          verbose: true
+
+      - name: Dry run mode
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "🔒 DRY RUN MODE - Skipping PyPI upload"
+          echo "Wheels that would be uploaded:"
+          ls -lh wheelhouse/*.whl dist/*.tar.gz

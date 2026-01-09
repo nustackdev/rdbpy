@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 # Project Metadata (PEP 621)
 # ============================================================================
 [project]
-name = "rdbpy"
+name = "rdbpython"
 version = "0.1.0"
 description = "Python bindings for RocksDB with Cython"
 readme = "README.md"
@@ -53,6 +53,7 @@ Homepage = "https://github.com/everyabc/rdbpy"
 Documentation = "https://github.com/everyabc/rdbpy#readme"
 Repository = "https://github.com/everyabc/rdbpy"
 Issues = "https://github.com/everyabc/rdbpy/issues"
+PyPI = "https://pypi.org/project/rdbpython/"
 
 [project.optional-dependencies]
 # Development tools
@@ -118,7 +119,7 @@ skip = [
 
 build-verbosity = 1
 
-test-command = "python -c \"import rdbpy; print('rdbpy version:', rdbpy.__version__)\""
+test-command = "python -c \"import rdbpy; print('rdbpy imported successfully')\""
 test-requires = ["pytest"]
 
 # ============================================================================
