@@ -1,0 +1,327 @@
+# ============================================================================
+# Build System
+# ============================================================================
+[build-system]
+requires = ["setuptools>=68.0", "wheel", "Cython>=3.0"]
+build-backend = "setuptools.build_meta"
+
+# ============================================================================
+# Project Metadata (PEP 621)
+# ============================================================================
+[project]
+name = "rdbpy"
+version = "0.1.0"
+description = "Python bindings for RocksDB with Cython"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Gor Arakelyan", email = "gorarkln@gmail.com"}
+]
+maintainers = [
+    {name = "Gor Arakelyan", email = "gorarkln@gmail.com"}
+]
+keywords = [
+    "rocksdb",
+    "database",
+    "key-value",
+    "storage",
+    "embedded",
+    "cython"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Cython",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Database",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "attrs",
+]
+
+[project.urls]
+Homepage = "https://github.com/everyabc/rdbpy"
+Documentation = "https://github.com/everyabc/rdbpy#readme"
+Repository = "https://github.com/everyabc/rdbpy"
+Issues = "https://github.com/everyabc/rdbpy/issues"
+
+[project.optional-dependencies]
+# Development tools
+dev = [
+    "ruff>=0.1.0",
+    "pre-commit>=3.0.0",
+]
+
+# Testing
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.0.0",
+    "pytest-timeout>=2.1.0",
+    "pytest-benchmark>=4.0.0",
+    "hypothesis>=6.0.0",
+]
+
+# Cython build dependencies (for building from source)
+cython = [
+    "Cython>=3.0.0",
+    "setuptools>=68.0",
+]
+
+# All development dependencies
+all = [
+    "rdbpy[dev,test,cython]",
+]
+
+# ============================================================================
+# Package Discovery
+# ============================================================================
+[tool.setuptools]
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["rocksdb*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+rocksdb = [
+    "**/*.pyx",
+    "**/*.pxd",
+    "**/*.hpp",
+    "py.typed",
+]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["*.c", "*.cpp"]
+
+# ============================================================================
+# CI/CD - cibuildwheel configuration
+# ============================================================================
+[tool.cibuildwheel]
+build = ["cp39-*", "cp310-*", "cp311-*", "cp312-*", "cp313-*"]
+
+skip = [
+    "*-musllinux_*",
+    "*-win32",
+    "*-manylinux_i686",
+]
+
+build-verbosity = 1
+
+test-command = "python -c \"import rocksdb; print('rocksdb version:', rocksdb.__version__)\""
+test-requires = ["pytest"]
+
+# ============================================================================
+# Linux-specific cibuildwheel settings
+# ============================================================================
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux2014"
+manylinux-aarch64-image = "manylinux2014"
+
+before-all = [
+    "yum install -y wget gcc gcc-c++ make",
+    "bash {project}/scripts/build-rocksdb-linux.sh"
+]
+
+environment = { ESROCKS_DEP_DIR="/tmp/esrocks_deps", LD_LIBRARY_PATH="/tmp/esrocks_deps/lib:$LD_LIBRARY_PATH" }
+
+test-command = [
+    "python -c \"import rocksdb; print('rocksdb imported successfully')\"",
+    "python -c \"import rocksdb; db = rocksdb.DB('/tmp/test.db', rocksdb.Options(create_if_missing=True)); db.put(b'key', b'value'); assert db.get(b'key') == b'value'; print('RocksDB basic test passed')\""
+]
+
+# ============================================================================
+# macOS-specific cibuildwheel settings
+# ============================================================================
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+
+environment = { MACOSX_DEPLOYMENT_TARGET="10.14", ESROCKS_DEP_DIR="/tmp/esrocks_deps", DYLD_LIBRARY_PATH="/tmp/esrocks_deps/lib:$DYLD_LIBRARY_PATH" }
+
+before-all = [
+    "bash {project}/scripts/build-rocksdb-macos.sh"
+]
+
+repair-wheel-command = "delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}"
+
+test-command = [
+    "python -c \"import rocksdb; print('rocksdb imported successfully')\"",
+    "python -c \"import rocksdb; db = rocksdb.DB('/tmp/test_macos.db', rocksdb.Options(create_if_missing=True)); db.put(b'key', b'value'); assert db.get(b'key') == b'value'; print('RocksDB basic test passed')\""
+]
+
+# ============================================================================
+# Windows-specific cibuildwheel settings
+# ============================================================================
+[tool.cibuildwheel.windows]
+before-all = [
+    "powershell -File {project}/scripts/build-rocksdb-windows.ps1"
+]
+
+environment = { ESROCKS_DEP_DIR="C:\\esrocks_deps" }
+
+test-command = [
+    "python -c \"import rocksdb; print('rocksdb imported successfully')\"",
+]
+
+# ============================================================================
+# Testing - pytest
+# ============================================================================
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--tb=short",
+    "--durations=10",
+]
+markers = [
+    "unit: Unit tests - fast, isolated",
+    "functional: Functional end-to-end tests",
+    "integration: Integration tests - cross-component",
+    "performance: Performance benchmarks",
+    "rocksdb: RocksDB tests",
+    "slow: Slow-running tests",
+]
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+]
+
+# ============================================================================
+# Coverage
+# ============================================================================
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
+    "@abstractmethod",
+    "@abc.abstractmethod",
+]
+precision = 2
+show_missing = true
+
+[tool.coverage.html]
+directory = "tests/reports/coverage"
+
+# ============================================================================
+# Linting & Formatting - Ruff
+# ============================================================================
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+extend-exclude = [
+    ".venv",
+    "build",
+    "dist",
+    "*.egg-info",
+    "*.c",
+    "*.cpp",
+    "*.so",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "N",      # pep8-naming
+    "YTT",    # flake8-2020
+    "S",      # flake8-bandit (security)
+    "T20",    # flake8-print
+    "D",      # pydocstyle
+    "ANN",    # flake8-annotations
+    "TC",     # flake8-type-checking
+    "RUF",    # ruff-specific rules
+    "PTH",    # flake8-pathlib
+]
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "D105",   # Missing docstring in magic method
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",   # assert allowed in tests
+    "T20",    # print allowed in tests
+    "D",      # docstrings not required in tests
+    "ANN",    # type annotations not required in tests
+]
+"setup.py" = [
+    "T20",    # print allowed in setup
+    "D",      # docstrings not required in setup
+]
+"src/rocksdb/**/*.py" = [
+    "D",      # Some docstrings may be in .pyx files
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["rocksdb"]
+force-single-line = false
+lines-after-imports = 2
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = 80
+
+# ============================================================================
+# Type Checking - mypy
+# ============================================================================
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+exclude = [
+    "build/",
+    "dist/",
+    ".venv/",
+    ".*\\.pyx$",
+]
+
+[[tool.mypy.overrides]]
+module = "rocksdb.*"
+ignore_errors = true

@@ -1,0 +1,85 @@
+# ============================================================================
+# MANIFEST.in - Source Distribution File Inclusion
+# ============================================================================
+
+# ============================================================================
+# Documentation and Metadata
+# ============================================================================
+include README.md
+include LICENSE
+include pyproject.toml
+include setup.py
+
+# py.typed marker for PEP 561 compliance
+recursive-include src py.typed
+
+# ============================================================================
+# Build Scripts (for users building from source)
+# ============================================================================
+include scripts/build-rocksdb-linux.sh
+include scripts/build-rocksdb-macos.sh
+
+# ============================================================================
+# rocksdb Package Files
+# ============================================================================
+# Cython source files (.pyx, .pxd)
+recursive-include src/rocksdb *.pyx
+recursive-include src/rocksdb *.pxd
+
+# C++ wrapper headers
+recursive-include src/rocksdb/include *.hpp
+recursive-include src/rocksdb/include *.h
+
+# Python type stubs
+recursive-include src/rocksdb *.pyi
+
+# Python files
+recursive-include src/rocksdb *.py
+
+# ============================================================================
+# Tests
+# ============================================================================
+recursive-include tests *.py
+
+# ============================================================================
+# Exclusions
+# ============================================================================
+# Exclude compiled files
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude __pycache__
+
+# Exclude Cython-generated C/C++ files
+global-exclude *.c
+global-exclude *.cpp
+
+# Exclude build artifacts
+global-exclude *.so
+global-exclude *.dylib
+global-exclude *.dll
+prune build
+prune dist
+prune *.egg-info
+
+# Exclude IDE and editor files
+global-exclude .DS_Store
+global-exclude *.swp
+global-exclude *.swo
+global-exclude *~
+prune .vscode
+prune .idea
+
+# Exclude version control
+prune .git
+global-exclude .gitignore
+global-exclude .gitattributes
+
+# Exclude CI/CD that users don't need
+prune .github
+exclude .pre-commit-config.yaml
+
+# Exclude development files
+exclude .coveragerc
+exclude .ruff_cache
+prune htmlcov
