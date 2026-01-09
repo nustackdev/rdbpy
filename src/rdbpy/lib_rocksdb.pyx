@@ -54,7 +54,7 @@ from rdbpy.interfaces import FilterPolicy as IFilterPolicy
 from rdbpy.interfaces import Comparator as IComparator
 from rdbpy.interfaces import SliceTransform as ISliceTransform
 import traceback
-import rocksdb.errors as errors
+import rdbpy.errors as errors
 import weakref
 
 # pxd defines:
