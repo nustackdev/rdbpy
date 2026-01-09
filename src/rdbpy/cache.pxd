@@ -1,4 +1,4 @@
-from rocksdb.std_memory cimport shared_ptr
+from rdbpy.std_memory cimport shared_ptr
 
 cdef extern from "rocksdb/cache.h" namespace "rocksdb":
     cdef cppclass Cache:

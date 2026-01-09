@@ -90,11 +90,11 @@ zip-safe = false
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["rocksdb*"]
+include = ["rdbpy*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-rocksdb = [
+rdbpy = [
     "**/*.pyx",
     "**/*.pxd",
     "**/*.hpp",
@@ -118,7 +118,7 @@ skip = [
 
 build-verbosity = 1
 
-test-command = "python -c \"import rocksdb; print('rocksdb version:', rocksdb.__version__)\""
+test-command = "python -c \"import rdbpy; print('rdbpy version:', rdbpy.__version__)\""
 test-requires = ["pytest"]
 
 # ============================================================================
@@ -136,8 +136,8 @@ before-all = [
 environment = { ESROCKS_DEP_DIR="/tmp/esrocks_deps", LD_LIBRARY_PATH="/tmp/esrocks_deps/lib:$LD_LIBRARY_PATH" }
 
 test-command = [
-    "python -c \"import rocksdb; print('rocksdb imported successfully')\"",
-    "python -c \"import rocksdb; db = rocksdb.DB('/tmp/test.db', rocksdb.Options(create_if_missing=True)); db.put(b'key', b'value'); assert db.get(b'key') == b'value'; print('RocksDB basic test passed')\""
+    "python -c \"import rdbpy; print('rdbpy imported successfully')\"",
+    "python -c \"import rdbpy; db = rdbpy.DB('/tmp/test.db', rdbpy.Options(create_if_missing=True)); db.put(b'key', b'value'); assert db.get(b'key') == b'value'; print('RocksDB basic test passed')\""
 ]
 
 # ============================================================================
@@ -155,8 +155,8 @@ before-all = [
 repair-wheel-command = "delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}"
 
 test-command = [
-    "python -c \"import rocksdb; print('rocksdb imported successfully')\"",
-    "python -c \"import rocksdb; db = rocksdb.DB('/tmp/test_macos.db', rocksdb.Options(create_if_missing=True)); db.put(b'key', b'value'); assert db.get(b'key') == b'value'; print('RocksDB basic test passed')\""
+    "python -c \"import rdbpy; print('rdbpy imported successfully')\"",
+    "python -c \"import rdbpy; db = rdbpy.DB('/tmp/test_macos.db', rdbpy.Options(create_if_missing=True)); db.put(b'key', b'value'); assert db.get(b'key') == b'value'; print('RocksDB basic test passed')\""
 ]
 
 # ============================================================================
@@ -170,7 +170,7 @@ before-all = [
 environment = { ESROCKS_DEP_DIR="C:\\esrocks_deps" }
 
 test-command = [
-    "python -c \"import rocksdb; print('rocksdb imported successfully')\"",
+    "python -c \"import rdbpy; print('rdbpy imported successfully')\"",
 ]
 
 # ============================================================================
@@ -289,12 +289,12 @@ convention = "google"
     "T20",    # print allowed in setup
     "D",      # docstrings not required in setup
 ]
-"src/rocksdb/**/*.py" = [
+"src/rdbpy/**/*.py" = [
     "D",      # Some docstrings may be in .pyx files
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["rocksdb"]
+known-first-party = ["rdbpy"]
 force-single-line = false
 lines-after-imports = 2
 
@@ -323,5 +323,5 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
-module = "rocksdb.*"
+module = "rdbpy.*"
 ignore_errors = true

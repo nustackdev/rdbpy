@@ -5,9 +5,9 @@ from libc.stdint cimport uint32_t
 from libc.stdint cimport int64_t
 from libc.stdint cimport uint64_t
 
-from rocksdb.status cimport Status
-from rocksdb.db cimport DB
-from rocksdb.env cimport Env
+from rdbpy.status cimport Status
+from rdbpy.db cimport DB
+from rdbpy.env cimport Env
 
 cdef extern from "rocksdb/utilities/backup_engine.h" namespace "rocksdb":
     ctypedef uint32_t BackupID

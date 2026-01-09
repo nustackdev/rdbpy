@@ -1,9 +1,9 @@
 from libc.stdint cimport uint32_t
 from libcpp cimport bool as cpp_bool
-from rocksdb.std_memory cimport shared_ptr
+from rdbpy.std_memory cimport shared_ptr
 
-from rocksdb.cache cimport Cache
-from rocksdb.filter_policy cimport FilterPolicy
+from rdbpy.cache cimport Cache
+from rdbpy.filter_policy cimport FilterPolicy
 
 cdef extern from "rocksdb/table.h" namespace "rocksdb":
     cdef cppclass TableFactory:

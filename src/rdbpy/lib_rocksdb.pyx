@@ -15,44 +15,44 @@ from cpython.bytes cimport PyBytes_FromString
 from cpython.bytes cimport PyBytes_FromStringAndSize
 from cpython.unicode cimport PyUnicode_Decode
 
-from rocksdb.std_memory cimport shared_ptr
-cimport rocksdb.options as options
-cimport rocksdb.merge_operator as merge_operator
-cimport rocksdb.filter_policy as filter_policy
-cimport rocksdb.comparator as comparator
-cimport rocksdb.slice_transform as slice_transform
-cimport rocksdb.cache as cache
-cimport rocksdb.logger as logger
-cimport rocksdb.snapshot as snapshot
-cimport rocksdb.db as db
-cimport rocksdb.iterator as iterator
-cimport rocksdb.backup as backup
-cimport rocksdb.env as env
-cimport rocksdb.transaction as transaction
-cimport rocksdb.table_factory as table_factory
-cimport rocksdb.memtablerep as memtablerep
-cimport rocksdb.universal_compaction as universal_compaction
+from rdbpy.std_memory cimport shared_ptr
+cimport rdbpy.options as options
+cimport rdbpy.merge_operator as merge_operator
+cimport rdbpy.filter_policy as filter_policy
+cimport rdbpy.comparator as comparator
+cimport rdbpy.slice_transform as slice_transform
+cimport rdbpy.cache as cache
+cimport rdbpy.logger as logger
+cimport rdbpy.snapshot as snapshot
+cimport rdbpy.db as db
+cimport rdbpy.iterator as iterator
+cimport rdbpy.backup as backup
+cimport rdbpy.env as env
+cimport rdbpy.transaction as transaction
+cimport rdbpy.table_factory as table_factory
+cimport rdbpy.memtablerep as memtablerep
+cimport rdbpy.universal_compaction as universal_compaction
 
 # Enums are the only exception for direct imports
 # Their name als already unique enough
-from rocksdb.universal_compaction cimport kCompactionStopStyleSimilarSize
-from rocksdb.universal_compaction cimport kCompactionStopStyleTotalSize
+from rdbpy.universal_compaction cimport kCompactionStopStyleSimilarSize
+from rdbpy.universal_compaction cimport kCompactionStopStyleTotalSize
 
-from rocksdb.options cimport FlushOptions
-from rocksdb.options cimport kCompactionStyleLevel
-from rocksdb.options cimport kCompactionStyleUniversal
-from rocksdb.options cimport kCompactionStyleFIFO
-from rocksdb.options cimport kCompactionStyleNone
+from rdbpy.options cimport FlushOptions
+from rdbpy.options cimport kCompactionStyleLevel
+from rdbpy.options cimport kCompactionStyleUniversal
+from rdbpy.options cimport kCompactionStyleFIFO
+from rdbpy.options cimport kCompactionStyleNone
 
-from rocksdb.slice_ cimport Slice
-from rocksdb.status cimport Status
+from rdbpy.slice_ cimport Slice
+from rdbpy.status cimport Status
 
 import sys
-from rocksdb.interfaces import MergeOperator as IMergeOperator
-from rocksdb.interfaces import AssociativeMergeOperator as IAssociativeMergeOperator
-from rocksdb.interfaces import FilterPolicy as IFilterPolicy
-from rocksdb.interfaces import Comparator as IComparator
-from rocksdb.interfaces import SliceTransform as ISliceTransform
+from rdbpy.interfaces import MergeOperator as IMergeOperator
+from rdbpy.interfaces import AssociativeMergeOperator as IAssociativeMergeOperator
+from rdbpy.interfaces import FilterPolicy as IFilterPolicy
+from rdbpy.interfaces import Comparator as IComparator
+from rdbpy.interfaces import SliceTransform as ISliceTransform
 import traceback
 import rocksdb.errors as errors
 import weakref

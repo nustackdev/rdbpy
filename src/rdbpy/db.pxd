@@ -1,12 +1,12 @@
-cimport rocksdb.options as options
+cimport rdbpy.options as options
 from libc.stdint cimport uint64_t, uint32_t
-from rocksdb.status cimport Status
+from rdbpy.status cimport Status
 from libcpp cimport bool as cpp_bool
 from libcpp.string cimport string
 from libcpp.vector cimport vector
-from rocksdb.slice_ cimport Slice
-from rocksdb.snapshot cimport Snapshot
-from rocksdb.iterator cimport Iterator
+from rdbpy.slice_ cimport Slice
+from rdbpy.snapshot cimport Snapshot
+from rdbpy.iterator cimport Iterator
 
 cdef extern from "rocksdb/write_batch.h" namespace "rocksdb":
     cdef cppclass WriteBatch:

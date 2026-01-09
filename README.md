@@ -11,11 +11,11 @@ pip install rdbpy
 ## Usage
 
 ```python
-import rocksdb
+import rdbpy
 
 # Open database
-options = rocksdb.Options(create_if_missing=True)
-db = rocksdb.DB('/path/to/db', options)
+options = rdbpy.Options(create_if_missing=True)
+db = rdbpy.DB('/path/to/db', options)
 
 # Put/Get
 db.put(b'key', b'value')

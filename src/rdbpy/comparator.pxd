@@ -1,7 +1,7 @@
 from libcpp.string cimport string
-from rocksdb.slice_ cimport Slice
-from rocksdb.logger cimport Logger
-from rocksdb.std_memory cimport shared_ptr
+from rdbpy.slice_ cimport Slice
+from rdbpy.logger cimport Logger
+from rdbpy.std_memory cimport shared_ptr
 
 cdef extern from "rocksdb/comparator.h" namespace "rocksdb":
     cdef cppclass Comparator:

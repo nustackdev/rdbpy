@@ -4,14 +4,14 @@ from libcpp cimport bool as cpp_bool
 from libcpp.string cimport string
 from libcpp.vector cimport vector
 
-from rocksdb.slice_ cimport Slice
-from rocksdb.snapshot cimport Snapshot
-from rocksdb.status cimport Status
-from rocksdb.std_memory cimport shared_ptr
+from rdbpy.slice_ cimport Slice
+from rdbpy.snapshot cimport Snapshot
+from rdbpy.status cimport Status
+from rdbpy.std_memory cimport shared_ptr
 
-cimport rocksdb.db as db
-cimport rocksdb.iterator as iterator
-cimport rocksdb.options as options
+cimport rdbpy.db as db
+cimport rdbpy.iterator as iterator
+cimport rdbpy.options as options
 
 
 cdef extern from "rocksdb/utilities/transaction_db_mutex.h" namespace "rocksdb":

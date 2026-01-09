@@ -1,8 +1,8 @@
-from rocksdb.slice_ cimport Slice
+from rdbpy.slice_ cimport Slice
 from libcpp.string cimport string
 from libcpp cimport bool as cpp_bool
-from rocksdb.logger cimport Logger
-from rocksdb.std_memory cimport shared_ptr
+from rdbpy.logger cimport Logger
+from rdbpy.std_memory cimport shared_ptr
 
 cdef extern from "rocksdb/slice_transform.h" namespace "rocksdb":
     cdef cppclass SliceTransform:

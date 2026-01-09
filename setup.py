@@ -2,11 +2,11 @@
 Setup script for rdbpy package.
 
 This setup.py handles:
-- Cython compilation for the rocksdb package, which provides Python bindings to RocksDB
+- Cython compilation for the rdbpy package, which provides Python bindings to RocksDB
 
 Package structure:
     src/
-    └── rocksdb/     (Cython + C++ - RocksDB bindings)
+    └── rdbpy/     (Cython + C++ - RocksDB bindings)
 
 Build environments:
     - Local development: May or may not have RocksDB installed
@@ -34,9 +34,9 @@ IS_LINUX = SYSTEM == "Linux"
 IS_MACOS = SYSTEM == "Darwin"
 IS_WINDOWS = SYSTEM == "Windows"
 
-# Config for rocksdb
-ROCKSDB_PATH = Path("src/rocksdb")
-HAS_ROCKSDB = ROCKSDB_PATH.exists() and list(ROCKSDB_PATH.glob("*.pyx"))
+# Config for rdbpy
+RDBPY_PATH = Path("src/rdbpy")
+HAS_RDBPY = RDBPY_PATH.exists() and list(RDBPY_PATH.glob("*.pyx"))
 
 # Get dependency directory from environment (set by build scripts)
 DEP_DIR = os.environ.get("ESROCKS_DEP_DIR", None)
@@ -55,7 +55,7 @@ def find_cython_files(package_path: Path) -> list[Path]:
 def get_include_dirs() -> list[str]:
     """Get include directories for compilation."""
     include_dirs = [
-        "src/rocksdb/include",  # Our C++ wrapper headers
+        "src/rdbpy/include",  # Our C++ wrapper headers
     ]
 
     if DEP_DIR:
@@ -227,13 +227,13 @@ def get_link_args() -> list[str]:
 
 
 def create_rocksdb_extensions() -> list[Extension]:
-    """Create Extension objects for rocksdb Cython files."""
-    if not HAS_ROCKSDB:
-        print("No rocksdb package found or no .pyx files - skipping Cython compilation")
+    """Create Extension objects for rdbpy Cython files."""
+    if not HAS_RDBPY:
+        print("No rdbpy package found or no .pyx files - skipping Cython compilation")
         return []
 
     print("=" * 80)
-    print("Building rocksdb RocksDB bindings")
+    print("Building rdbpy RocksDB bindings")
     print("=" * 80)
 
     # Check if Cython is available
@@ -244,11 +244,11 @@ def create_rocksdb_extensions() -> list[Extension]:
         print("   Install it with: pip install Cython>=3.0")
         sys.exit(1)
 
-    # Find all .pyx files in rocksdb
-    pyx_files = find_cython_files(ROCKSDB_PATH)
+    # Find all .pyx files in rdbpy
+    pyx_files = find_cython_files(RDBPY_PATH)
 
     if not pyx_files:
-        print("No .pyx files found in rocksdb")
+        print("No .pyx files found in rdbpy")
         return []
 
     print(f"📦 Found {len(pyx_files)} Cython file(s):")
@@ -274,7 +274,7 @@ def create_rocksdb_extensions() -> list[Extension]:
 
     for pyx_file in pyx_files:
         # Convert path to module name
-        # e.g., src/rocksdb/lib_rocksdb.pyx -> rocksdb.lib_rocksdb
+        # e.g., src/rdbpy/lib_rocksdb.pyx -> rdbpy.lib_rocksdb
         rel_path = pyx_file.relative_to("src")
         module_parts = [*list(rel_path.parts[:-1]), rel_path.stem]
         module_name = ".".join(module_parts)
@@ -350,7 +350,7 @@ def main() -> None:
 
     if extensions:
         print("\nBuild completed successfully!")
-        print("   rocksdb RocksDB bindings are ready to use.")
+        print("   rdbpy RocksDB bindings are ready to use.")
     else:
         print("\nBuild completed (pure Python packages only)")
 

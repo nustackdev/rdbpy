@@ -1,6 +1,6 @@
 import struct as py_struct
 
-from rocksdb.interfaces import AssociativeMergeOperator
+from rdbpy.interfaces import AssociativeMergeOperator
 
 
 class UintAddOperator(AssociativeMergeOperator):

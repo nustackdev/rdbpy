@@ -122,7 +122,7 @@ test-verbose:
 
 test-cov:
 	@echo "$(BLUE)Running tests with coverage...$(NC)"
-	pytest $(TEST_DIR) --cov=rocksdb --cov-report=html:tests/reports/coverage --cov-report=term-missing --cov-branch
+	pytest $(TEST_DIR) --cov=rdbpy --cov-report=html:tests/reports/coverage --cov-report=term-missing --cov-branch
 	@echo "$(GREEN)✓ Coverage report: tests/reports/coverage/index.html$(NC)"
 
 test-watch:
@@ -137,18 +137,18 @@ quick: build test-fast
 
 lint:
 	@echo "$(BLUE)Running linters...$(NC)"
-	ruff check $(SRC_DIR)/rocksdb $(TEST_DIR)
+	ruff check $(SRC_DIR)/rdbpy $(TEST_DIR)
 
 format:
 	@echo "$(BLUE)Formatting code...$(NC)"
-	ruff format $(SRC_DIR)/rocksdb $(TEST_DIR)
-	ruff check --fix $(SRC_DIR)/rocksdb $(TEST_DIR)
+	ruff format $(SRC_DIR)/rdbpy $(TEST_DIR)
+	ruff check --fix $(SRC_DIR)/rdbpy $(TEST_DIR)
 	@echo "$(GREEN)✓ Code formatted$(NC)"
 
 format-check:
 	@echo "$(BLUE)Checking code format...$(NC)"
-	ruff format --check $(SRC_DIR)/rocksdb $(TEST_DIR)
-	ruff check $(SRC_DIR)/rocksdb $(TEST_DIR)
+	ruff format --check $(SRC_DIR)/rdbpy $(TEST_DIR)
+	ruff check $(SRC_DIR)/rdbpy $(TEST_DIR)
 
 pre-commit: format lint test-fast
 	@echo ""

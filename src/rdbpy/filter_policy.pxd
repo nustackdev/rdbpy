@@ -1,9 +1,9 @@
 from libcpp cimport bool as cpp_bool
 from libcpp.string cimport string
 from libc.string cimport const_char
-from rocksdb.slice_ cimport Slice
-from rocksdb.std_memory cimport shared_ptr
-from rocksdb.logger cimport Logger
+from rdbpy.slice_ cimport Slice
+from rdbpy.std_memory cimport shared_ptr
+from rdbpy.logger cimport Logger
 
 cdef extern from "rocksdb/filter_policy.h" namespace "rocksdb":
     cdef cppclass FilterPolicy:
