@@ -6,8 +6,8 @@ import unittest
 from itertools import takewhile
 from pathlib import Path
 
-import esrocks
-from esrocks.merge_operators import StringAppendOperator, UintAddOperator
+import rdbpy
+from rdbpy.merge_operators import StringAppendOperator, UintAddOperator
 
 
 def int_to_bytes(ob: object) -> bytes:
@@ -29,18 +29,18 @@ class TestHelper(unittest.TestCase):
 class TestDB(TestHelper):
     def setUp(self) -> None:
         TestHelper.setUp(self)
-        opts = esrocks.Options(create_if_missing=True)
-        self.db = esrocks.DB(str(Path(self.db_loc) / "test"), opts)
+        opts = rdbpy.Options(create_if_missing=True)
+        self.db = rdbpy.DB(str(Path(self.db_loc) / "test"), opts)
 
     def test_options_used_twice(self) -> None:
         assert_raises_regex = self.assertRaisesRegex
         expected = "Options object is already used by another DB"
         with assert_raises_regex(Exception, expected):
-            esrocks.DB(str(Path(self.db_loc) / "test2"), self.db.options)
+            rdbpy.DB(str(Path(self.db_loc) / "test2"), self.db.options)
 
     def test_unicode_path(self) -> None:
         name = str(Path(self.db_loc) / b"M\xc3\xbcnchen".decode("utf8"))
-        esrocks.DB(name, esrocks.Options(create_if_missing=True))
+        rdbpy.DB(name, rdbpy.Options(create_if_missing=True))
         self.addCleanup(shutil.rmtree, name)
         self.assertTrue(Path(name).is_dir())
 
@@ -67,7 +67,7 @@ class TestDB(TestHelper):
         self.assertIsNone(self.db.get(b"a"))
 
     def test_write_batch(self) -> None:
-        batch = esrocks.WriteBatch()
+        batch = rdbpy.WriteBatch()
         batch.put(b"key", b"v1")
         batch.delete(b"key")
         batch.put(b"key", b"v2")
@@ -80,7 +80,7 @@ class TestDB(TestHelper):
         self.assertEqual(ref, ret)
 
     def test_write_batch_iter(self) -> None:
-        batch = esrocks.WriteBatch()
+        batch = rdbpy.WriteBatch()
         self.assertEqual([], list(batch))
 
         batch.put(b"key1", b"v1")
@@ -260,7 +260,7 @@ class TestDB(TestHelper):
         self.db.compact_range()
 
 
-class AssocCounter(esrocks.interfaces.AssociativeMergeOperator):
+class AssocCounter(rdbpy.interfaces.AssociativeMergeOperator):
     def merge(self, key: bytes, existing_value: bytes | None, value: bytes) -> tuple[bool, bytes]:
         if existing_value:
             return (True, int_to_bytes(int(existing_value) + int(value)))
@@ -273,10 +273,10 @@ class AssocCounter(esrocks.interfaces.AssociativeMergeOperator):
 class TestUint64Merge(TestHelper):
     def setUp(self) -> None:
         TestHelper.setUp(self)
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         opts.create_if_missing = True
         opts.merge_operator = UintAddOperator()
-        self.db = esrocks.DB(str(Path(self.db_loc) / "test"), opts)
+        self.db = rdbpy.DB(str(Path(self.db_loc) / "test"), opts)
 
     def test_merge(self) -> None:
         self.db.put(b"a", struct.pack("Q", 5566))
@@ -315,10 +315,10 @@ class TestUint64Merge(TestHelper):
 class TestStringAppendOperatorMerge(TestHelper):
     def setUp(self) -> None:
         TestHelper.setUp(self)
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         opts.create_if_missing = True
         opts.merge_operator = StringAppendOperator()
-        self.db = esrocks.DB(str(Path(self.db_loc) / "test"), opts)
+        self.db = rdbpy.DB(str(Path(self.db_loc) / "test"), opts)
 
     # NOTE(sileht): Raise "Corruption: Error: Could not perform merge." on PY3
     # @unittest.skipIf(sys.version_info[0] == 3,
@@ -346,10 +346,10 @@ class TestStringAppendOperatorMerge(TestHelper):
 class TestAssocMerge(TestHelper):
     def setUp(self) -> None:
         TestHelper.setUp(self)
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         opts.create_if_missing = True
         opts.merge_operator = AssocCounter()
-        self.db = esrocks.DB(str(Path(self.db_loc) / "test"), opts)
+        self.db = rdbpy.DB(str(Path(self.db_loc) / "test"), opts)
 
     def test_merge(self) -> None:
         for x in range(1000):
@@ -357,7 +357,7 @@ class TestAssocMerge(TestHelper):
         self.assertEqual(sum(range(1000)), int(self.db.get(b"a")))
 
 
-class FullCounter(esrocks.interfaces.MergeOperator):
+class FullCounter(rdbpy.interfaces.MergeOperator):
     def name(self) -> bytes:
         return b"fullcounter"
 
@@ -377,10 +377,10 @@ class FullCounter(esrocks.interfaces.MergeOperator):
 class TestFullMerge(TestHelper):
     def setUp(self) -> None:
         TestHelper.setUp(self)
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         opts.create_if_missing = True
         opts.merge_operator = FullCounter()
-        self.db = esrocks.DB(str(Path(self.db_loc) / "test"), opts)
+        self.db = rdbpy.DB(str(Path(self.db_loc) / "test"), opts)
 
     def test_merge(self) -> None:
         for x in range(1000):
@@ -388,7 +388,7 @@ class TestFullMerge(TestHelper):
         self.assertEqual(sum(range(1000)), int(self.db.get(b"a")))
 
 
-class SimpleComparator(esrocks.interfaces.Comparator):
+class SimpleComparator(rdbpy.interfaces.Comparator):
     def name(self) -> bytes:
         return b"mycompare"
 
@@ -406,10 +406,10 @@ class SimpleComparator(esrocks.interfaces.Comparator):
 class TestComparator(TestHelper):
     def setUp(self) -> None:
         TestHelper.setUp(self)
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         opts.create_if_missing = True
         opts.comparator = SimpleComparator()
-        self.db = esrocks.DB(str(Path(self.db_loc) / "test"), opts)
+        self.db = rdbpy.DB(str(Path(self.db_loc) / "test"), opts)
 
     def test_compare(self) -> None:
         for x in range(1000):
@@ -418,7 +418,7 @@ class TestComparator(TestHelper):
         self.assertEqual(b"300", self.db.get(b"300"))
 
 
-class StaticPrefix(esrocks.interfaces.SliceTransform):
+class StaticPrefix(rdbpy.interfaces.SliceTransform):
     def name(self) -> bytes:
         return b"static"
 
@@ -435,9 +435,9 @@ class StaticPrefix(esrocks.interfaces.SliceTransform):
 class TestPrefixExtractor(TestHelper):
     def setUp(self) -> None:
         TestHelper.setUp(self)
-        opts = esrocks.Options(create_if_missing=True)
+        opts = rdbpy.Options(create_if_missing=True)
         opts.prefix_extractor = StaticPrefix()
-        self.db = esrocks.DB(str(Path(self.db_loc) / "test"), opts)
+        self.db = rdbpy.DB(str(Path(self.db_loc) / "test"), opts)
 
     def _fill_db(self) -> None:
         for x in range(3000):
@@ -475,14 +475,14 @@ class TestPrefixExtractor(TestHelper):
 class TestDBColumnFamilies(TestHelper):
     def setUp(self) -> None:
         TestHelper.setUp(self)
-        opts = esrocks.Options(create_if_missing=True)
-        self.db = esrocks.DB(
+        opts = rdbpy.Options(create_if_missing=True)
+        self.db = rdbpy.DB(
             str(Path(self.db_loc) / "test"),
             opts,
         )
 
-        self.cf_a = self.db.create_column_family(b"A", esrocks.ColumnFamilyOptions())
-        self.cf_b = self.db.create_column_family(b"B", esrocks.ColumnFamilyOptions())
+        self.cf_a = self.db.create_column_family(b"A", rdbpy.ColumnFamilyOptions())
+        self.cf_b = self.db.create_column_family(b"B", rdbpy.ColumnFamilyOptions())
 
     def test_column_families(self) -> None:
         families = self.db.column_families
@@ -493,9 +493,9 @@ class TestDBColumnFamilies(TestHelper):
 
         self.assertEqual(
             names,
-            esrocks.list_column_families(
+            rdbpy.list_column_families(
                 str(Path(self.db_loc) / "test"),
-                esrocks.Options(),
+                rdbpy.Options(),
             ),
         )
 
@@ -541,7 +541,7 @@ class TestDBColumnFamilies(TestHelper):
 
     def test_write_batch(self) -> None:
         cfa = self.db.get_column_family(b"A")
-        batch = esrocks.WriteBatch()
+        batch = rdbpy.WriteBatch()
         batch.put(b"key", b"v1", column_family=cfa)
         batch.delete(b"key", column_family=self.cf_a)
         batch.put(b"key", b"v2", column_family=cfa)

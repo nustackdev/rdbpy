@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import esrocks
+import rdbpy
 
 
 class TransactionTestHelper(unittest.TestCase):
@@ -23,9 +23,9 @@ class TransactionTestHelper(unittest.TestCase):
 class TestTransactionDB(TransactionTestHelper):
     def setUp(self) -> None:
         super().setUp()
-        opts = esrocks.Options(create_if_missing=True)
-        self.txn_opts = esrocks.TransactionDBOptions()
-        self.db = esrocks.TransactionDB(
+        opts = rdbpy.Options(create_if_missing=True)
+        self.txn_opts = rdbpy.TransactionDBOptions()
+        self.db = rdbpy.TransactionDB(
             str(Path(self.db_loc) / "txn"),
             opts,
             txn_db_opts=self.txn_opts,
@@ -102,15 +102,15 @@ class TestTransactionDB(TransactionTestHelper):
 
 class TestTransactionOptionsSemantics(unittest.TestCase):
     def test_write_policy_roundtrip(self) -> None:
-        opts = esrocks.TransactionDBOptions()
-        opts.write_policy = esrocks.TxnDBWritePolicy.write_prepared
+        opts = rdbpy.TransactionDBOptions()
+        opts.write_policy = rdbpy.TxnDBWritePolicy.write_prepared
         self.assertEqual(
             opts.write_policy,
-            esrocks.TxnDBWritePolicy.write_prepared,
+            rdbpy.TxnDBWritePolicy.write_prepared,
         )
 
     def test_transaction_options_defaults(self) -> None:
-        txn_opts = esrocks.TransactionOptions()
+        txn_opts = rdbpy.TransactionOptions()
         self.assertFalse(txn_opts.set_snapshot)
         txn_opts.set_snapshot = True
         self.assertTrue(txn_opts.set_snapshot)

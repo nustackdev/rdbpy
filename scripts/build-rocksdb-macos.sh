@@ -12,9 +12,9 @@ set -x
 # ==============================================================================
 
 ROCKSDB_VERSION="${ROCKSDB_VERSION:-6.29.5}"
-ESROCKS_DEP_DIR="${ESROCKS_DEP_DIR:-/tmp/esrocks_deps}"
+RDBPY_DEP_DIR="${RDBPY_DEP_DIR:-/tmp/rdbpy_deps}"
 
-mkdir -p "$ESROCKS_DEP_DIR"/{lib,include}
+mkdir -p "$RDBPY_DEP_DIR"/{lib,include}
 cd /tmp
 
 echo "========================================="
@@ -30,7 +30,7 @@ ARCH=$(uname -m)  # arm64 or x86_64
 export CFLAGS="-fPIC -O3 -mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.14}"
 export CXXFLAGS="-fPIC -O3 -mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.14} -stdlib=libc++"
 export LDFLAGS="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.14} -stdlib=libc++"
-export PREFIX="$ESROCKS_DEP_DIR"
+export PREFIX="$RDBPY_DEP_DIR"
 
 fix_install_id() {
     local lib_path="$1"

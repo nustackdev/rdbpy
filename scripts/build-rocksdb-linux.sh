@@ -16,20 +16,20 @@ set -x
 # - snappy (compression)
 # - RocksDB (main database library)
 #
-# All libraries are installed to $ESROCKS_DEP_DIR
+# All libraries are installed to $RDBPY_DEP_DIR
 # ==============================================================================
 
 ROCKSDB_VERSION="${ROCKSDB_VERSION:-6.29.5}"
-ESROCKS_DEP_DIR="${ESROCKS_DEP_DIR:-/tmp/esrocks_deps}"
+RDBPY_DEP_DIR="${RDBPY_DEP_DIR:-/tmp/rdbpy_deps}"
 
-mkdir -p "$ESROCKS_DEP_DIR"/{lib,include}
+mkdir -p "$RDBPY_DEP_DIR"/{lib,include}
 cd /tmp
 
 echo "========================================="
 echo "Building dependencies for Linux"
 echo "Architecture: $(uname -m)"
 echo "RocksDB version: $ROCKSDB_VERSION"
-echo "Prefix: $ESROCKS_DEP_DIR"
+echo "Prefix: $RDBPY_DEP_DIR"
 echo "========================================="
 
 # ==============================================================================
@@ -47,7 +47,7 @@ fi
 export CFLAGS="-fPIC -O3"
 export CXXFLAGS="-fPIC -O3"
 export LDFLAGS="-Wl,-rpath,'\$ORIGIN'"
-export PREFIX="$ESROCKS_DEP_DIR"
+export PREFIX="$RDBPY_DEP_DIR"
 
 # ==============================================================================
 # Build zlib

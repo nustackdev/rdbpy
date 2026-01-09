@@ -1,10 +1,10 @@
 import unittest
 from collections.abc import Sequence
 
-import esrocks
+import rdbpy
 
 
-class TestFilterPolicy(esrocks.interfaces.FilterPolicy):
+class TestFilterPolicy(rdbpy.interfaces.FilterPolicy):
     def create_filter(self, keys: Sequence[bytes]) -> bytes:
         return b"nix"
 
@@ -15,7 +15,7 @@ class TestFilterPolicy(esrocks.interfaces.FilterPolicy):
         return b"testfilter"
 
 
-class TestMergeOperator(esrocks.interfaces.MergeOperator):
+class TestMergeOperator(rdbpy.interfaces.MergeOperator):
     def full_merge(self, *args: object, **kwargs: object) -> tuple[bool, bytes | None]:
         return (False, None)
 
@@ -54,19 +54,19 @@ class TestOptions(unittest.TestCase):
     #  self.assertEqual(opts.compaction_pri, rocksdb.CompactionPri.min_overlapping_ratio)
 
     def test_enable_write_thread_adaptive_yield(self) -> None:
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         self.assertEqual(opts.enable_write_thread_adaptive_yield, True)
         opts.enable_write_thread_adaptive_yield = False
         self.assertEqual(opts.enable_write_thread_adaptive_yield, False)
 
     def test_allow_concurrent_memtable_write(self) -> None:
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         self.assertEqual(opts.allow_concurrent_memtable_write, True)
         opts.allow_concurrent_memtable_write = False
         self.assertEqual(opts.allow_concurrent_memtable_write, False)
 
     def test_compression_opts(self) -> None:
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         compression_opts = opts.compression_opts
         # default value
         self.assertEqual(isinstance(compression_opts, dict), True)
@@ -87,7 +87,7 @@ class TestOptions(unittest.TestCase):
         self.assertEqual(compression_opts["max_dict_bytes"], 4)
 
     def test_simple(self) -> None:
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         self.assertEqual(True, opts.paranoid_checks)
         opts.paranoid_checks = False
         self.assertEqual(False, opts.paranoid_checks)
@@ -97,24 +97,24 @@ class TestOptions(unittest.TestCase):
         opts.merge_operator = ob
         self.assertEqual(opts.merge_operator, ob)
 
-        self.assertIsInstance(opts.comparator, esrocks.BytewiseComparator)
+        self.assertIsInstance(opts.comparator, rdbpy.BytewiseComparator)
 
         self.assertIn(
             opts.compression,
-            (esrocks.CompressionType.no_compression, esrocks.CompressionType.snappy_compression),
+            (rdbpy.CompressionType.no_compression, rdbpy.CompressionType.snappy_compression),
         )
 
-        opts.compression = esrocks.CompressionType.zstd_compression
-        self.assertEqual(esrocks.CompressionType.zstd_compression, opts.compression)
+        opts.compression = rdbpy.CompressionType.zstd_compression
+        self.assertEqual(rdbpy.CompressionType.zstd_compression, opts.compression)
 
     def test_block_options(self) -> None:
-        esrocks.BlockBasedTableFactory(
-            block_size=4096, filter_policy=TestFilterPolicy(), block_cache=esrocks.LRUCache(100)
+        rdbpy.BlockBasedTableFactory(
+            block_size=4096, filter_policy=TestFilterPolicy(), block_cache=rdbpy.LRUCache(100)
         )
 
     def test_unicode_path(self) -> None:
         name = b"/tmp/M\xc3\xbcnchen".decode("utf8")
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         opts.db_log_dir = name
         opts.wal_dir = name
 
@@ -122,14 +122,14 @@ class TestOptions(unittest.TestCase):
         self.assertEqual(name, opts.wal_dir)
 
     def test_table_factory(self) -> None:
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         self.assertIsNone(opts.table_factory)
 
-        opts.table_factory = esrocks.BlockBasedTableFactory()
-        opts.table_factory = esrocks.PlainTableFactory()
+        opts.table_factory = rdbpy.BlockBasedTableFactory()
+        opts.table_factory = rdbpy.PlainTableFactory()
 
     def test_compaction_style(self) -> None:
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         self.assertEqual("level", opts.compaction_style)
 
         opts.compaction_style = "universal"
@@ -144,7 +144,7 @@ class TestOptions(unittest.TestCase):
             opts.compaction_style = "foo"
 
     def test_compaction_opts_universal(self) -> None:
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         uopts = opts.compaction_options_universal
         self.assertEqual(-1, uopts["compression_size_percent"])
         self.assertEqual(200, uopts["max_size_amplification_percent"])
@@ -165,7 +165,7 @@ class TestOptions(unittest.TestCase):
         self.assertEqual(30, uopts["max_merge_width"])
 
     def test_row_cache(self) -> None:
-        opts = esrocks.Options()
+        opts = rdbpy.Options()
         self.assertIsNone(opts.row_cache)
-        opts.row_cache = cache = esrocks.LRUCache(2 * 1024 * 1024)
+        opts.row_cache = cache = rdbpy.LRUCache(2 * 1024 * 1024)
         self.assertEqual(cache, opts.row_cache)

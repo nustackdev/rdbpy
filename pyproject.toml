@@ -133,7 +133,7 @@ before-all = [
     "bash {project}/scripts/build-rocksdb-linux.sh"
 ]
 
-environment = { ESROCKS_DEP_DIR="/tmp/esrocks_deps", LD_LIBRARY_PATH="/tmp/esrocks_deps/lib:$LD_LIBRARY_PATH" }
+environment = { RDBPY_DEP_DIR="/tmp/rdbpy_deps", LD_LIBRARY_PATH="/tmp/rdbpy_deps/lib:$LD_LIBRARY_PATH" }
 
 test-command = [
     "python -c \"import rdbpy; print('rdbpy imported successfully')\"",
@@ -146,7 +146,7 @@ test-command = [
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
 
-environment = { MACOSX_DEPLOYMENT_TARGET="10.14", ESROCKS_DEP_DIR="/tmp/esrocks_deps", DYLD_LIBRARY_PATH="/tmp/esrocks_deps/lib:$DYLD_LIBRARY_PATH" }
+environment = { MACOSX_DEPLOYMENT_TARGET="10.14", RDBPY_DEP_DIR="/tmp/rdbpy_deps", DYLD_LIBRARY_PATH="/tmp/rdbpy_deps/lib:$DYLD_LIBRARY_PATH" }
 
 before-all = [
     "bash {project}/scripts/build-rocksdb-macos.sh"
@@ -167,7 +167,7 @@ before-all = [
     "powershell -File {project}/scripts/build-rocksdb-windows.ps1"
 ]
 
-environment = { ESROCKS_DEP_DIR="C:\\esrocks_deps" }
+environment = { RDBPY_DEP_DIR="C:\\rdbpy_deps" }
 
 test-command = [
     "python -c \"import rdbpy; print('rdbpy imported successfully')\"",

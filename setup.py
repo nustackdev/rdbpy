@@ -14,7 +14,7 @@ Build environments:
     - Source distribution: Users must have RocksDB installed
 
 Environment variables:
-    ESROCKS_DEP_DIR: Path to RocksDB and compression libraries (set by build scripts)
+    RDBPY_DEP_DIR: Path to RocksDB and compression libraries (set by build scripts)
 """
 
 import os
@@ -39,7 +39,7 @@ RDBPY_PATH = Path("src/rdbpy")
 HAS_RDBPY = RDBPY_PATH.exists() and list(RDBPY_PATH.glob("*.pyx"))
 
 # Get dependency directory from environment (set by build scripts)
-DEP_DIR = os.environ.get("ESROCKS_DEP_DIR", None)
+DEP_DIR = os.environ.get("RDBPY_DEP_DIR", None)
 
 
 # ============================================================================
@@ -329,7 +329,7 @@ def main() -> None:
     if "bdist_wheel" in sys.argv or "build" in sys.argv or "install" in sys.argv:
         if extensions and not DEP_DIR:
             print("\n" + "=" * 80)
-            print("WARNING: Building without ESROCKS_DEP_DIR set!")
+            print("WARNING: Building without RDBPY_DEP_DIR set!")
             print("=" * 80)
             print("This may fail if RocksDB is not installed system-wide.")
             print("For CI/CD builds, ensure build-rocksdb-*.sh scripts run first.")
