@@ -140,6 +140,17 @@ curl -L "https://github.com/facebook/rocksdb/archive/v${ROCKSDB_VERSION}.tar.gz"
 tar xzf "rocksdb-${ROCKSDB_VERSION}.tar.gz"
 cd "rocksdb-${ROCKSDB_VERSION}"
 
+# Apply patch to fix missing <cstdint> include for newer GCC versions
+echo "Applying cstdint patch..."
+SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")"
+if [ -f "$SCRIPT_DIR/rocksdb-cstdint.patch" ]; then
+    patch -p1 < "$SCRIPT_DIR/rocksdb-cstdint.patch" || echo "Warning: patch may already be applied or failed"
+else
+    # Fallback: apply fix directly if patch file not found
+    echo "Patch file not found, applying fix directly..."
+    sed -i '/#include <string>/a #include <cstdint>' table/block_based/data_block_hash_index.h || true
+fi
+
 export LIBRARY_PATH="$PREFIX/lib"
 export CPLUS_INCLUDE_PATH="$PREFIX/include"
 

@@ -1,0 +1,10 @@
+--- rocksdb-6.29.5/table/block_based/data_block_hash_index.h.orig	2024-01-10 00:00:00.000000000 +0000
++++ rocksdb-6.29.5/table/block_based/data_block_hash_index.h	2024-01-10 00:00:00.000000000 +0000
+@@ -6,6 +6,7 @@
+ #pragma once
+
+ #include <string>
++#include <cstdint>
+ #include <vector>
+
+ #include "rocksdb/slice.h"

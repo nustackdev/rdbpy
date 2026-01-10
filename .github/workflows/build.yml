@@ -1,11 +1,7 @@
 name: Build Wheels
 
 on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger only to save CI minutes
 
 jobs:
   build_wheels:
@@ -24,11 +20,11 @@ jobs:
             cibw_archs: "aarch64"
 
           # macOS Intel (x86_64)
-          - os: macos-13
+          - os: macos-15-large  # Intel runner
             cibw_archs: "x86_64"
 
           # macOS Apple Silicon (arm64)
-          - os: macos-14
+          - os: macos-latest  # Apple Silicon runner
             cibw_archs: "arm64"
 
     steps:
