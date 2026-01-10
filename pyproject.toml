@@ -288,6 +288,11 @@ convention = "google"
     "D",      # docstrings not required in tests
     "ANN",    # type annotations not required in tests
 ]
+"bench/**/*.py" = [
+    "T20",    # print allowed in benchmarks
+    "D",      # docstrings not required in benchmarks
+    "ANN",    # type annotations not required in benchmarks
+]
 "setup.py" = [
     "T20",    # print allowed in setup
     "D",      # docstrings not required in setup
