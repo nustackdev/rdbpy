@@ -15,9 +15,9 @@ jobs:
           - os: ubuntu-latest
             cibw_archs: "x86_64"
 
-          # Linux aarch64 (ARM)
-          - os: ubuntu-latest
-            cibw_archs: "aarch64"
+          # Linux aarch64 (ARM) - Commented out for now (slow QEMU emulation)
+          # - os: ubuntu-latest
+          #   cibw_archs: "aarch64"
 
           # macOS Intel (x86_64)
           - os: macos-15-intel
