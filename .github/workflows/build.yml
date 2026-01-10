@@ -20,11 +20,11 @@ jobs:
             cibw_archs: "aarch64"
 
           # macOS Intel (x86_64)
-          - os: macos-15-large  # Intel runner
+          - os: macos-15-intel
             cibw_archs: "x86_64"
 
           # macOS Apple Silicon (arm64)
-          - os: macos-latest  # Apple Silicon runner
+          - os: macos-15
             cibw_archs: "arm64"
 
     steps:
