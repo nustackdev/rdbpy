@@ -1,0 +1,176 @@
+name: Test PyPI Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to test (e.g., 0.2.1). Leave empty for latest.'
+        required: false
+        default: ''
+      run_full_tests:
+        description: 'Run full test suite (not just smoke tests)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  smoke_test:
+    name: Smoke test on ${{ matrix.os }} (Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+
+    steps:
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package from PyPI
+        run: |
+          python -m pip install --upgrade pip
+          if [ -z "${{ inputs.version }}" ]; then
+            echo "Installing latest version from PyPI..."
+            pip install rdbpython
+          else
+            echo "Installing version ${{ inputs.version }} from PyPI..."
+            pip install rdbpython==${{ inputs.version }}
+          fi
+
+      - name: Show installed version
+        run: |
+          python -c "import rdbpy; print(f'✓ rdbpy imported successfully')"
+          pip show rdbpython
+
+      - name: Smoke test - Basic operations
+        run: |
+          python << 'EOF'
+          import rdbpy
+          import tempfile
+          import os
+
+          print("=" * 60)
+          print("Running smoke tests...")
+          print("=" * 60)
+
+          # Test 1: Create database
+          print("\n1. Testing database creation...")
+          db_path = os.path.join(tempfile.gettempdir(), 'rdbpy_smoke_test.db')
+          opts = rdbpy.Options(create_if_missing=True)
+          db = rdbpy.DB(db_path, opts)
+          print("   ✓ Database created successfully")
+
+          # Test 2: Put operation
+          print("\n2. Testing put operation...")
+          db.put(b'key1', b'value1')
+          db.put(b'key2', b'value2')
+          print("   ✓ Put operations successful")
+
+          # Test 3: Get operation
+          print("\n3. Testing get operation...")
+          value = db.get(b'key1')
+          assert value == b'value1', f"Expected b'value1', got {value}"
+          print(f"   ✓ Get operation successful: {value}")
+
+          # Test 4: Delete operation
+          print("\n4. Testing delete operation...")
+          db.delete(b'key1')
+          value = db.get(b'key1')
+          assert value is None, f"Expected None after delete, got {value}"
+          print("   ✓ Delete operation successful")
+
+          # Test 5: Iterator
+          print("\n5. Testing iterator...")
+          it = db.iterkeys()
+          it.seek_to_first()
+          keys = list(it)
+          assert b'key2' in keys, f"Expected b'key2' in keys, got {keys}"
+          print(f"   ✓ Iterator works: found {len(keys)} key(s)")
+
+          # Test 6: Batch write
+          print("\n6. Testing write batch...")
+          batch = rdbpy.WriteBatch()
+          batch.put(b'batch_key1', b'batch_value1')
+          batch.put(b'batch_key2', b'batch_value2')
+          batch.delete(b'key2')
+          db.write(batch)
+          assert db.get(b'batch_key1') == b'batch_value1'
+          assert db.get(b'key2') is None
+          print("   ✓ Write batch successful")
+
+          # Cleanup
+          del db
+          import shutil
+          shutil.rmtree(db_path, ignore_errors=True)
+
+          print("\n" + "=" * 60)
+          print("✅ All smoke tests passed!")
+          print("=" * 60)
+          EOF
+
+  full_test:
+    name: Full test suite on ${{ matrix.os }} (Python ${{ matrix.python-version }})
+    if: ${{ inputs.run_full_tests }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.9', '3.12']  # Test only 2 versions for full suite
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package from PyPI
+        run: |
+          python -m pip install --upgrade pip
+          if [ -z "${{ inputs.version }}" ]; then
+            echo "Installing latest version from PyPI..."
+            pip install rdbpython
+          else
+            echo "Installing version ${{ inputs.version }} from PyPI..."
+            pip install rdbpython==${{ inputs.version }}
+          fi
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest pytest-cov pytest-xdist pytest-timeout
+
+      - name: Run full test suite
+        run: |
+          if [ -d "tests" ]; then
+            pytest tests/ -v --tb=short
+          else
+            echo "⚠️  No tests directory found, skipping full test suite"
+            echo "Only smoke tests were run"
+          fi
+
+  summary:
+    name: Test Summary
+    needs: [smoke_test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          echo "## 🧪 PyPI Package Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.smoke_test.result }}" == "success" ]; then
+            echo "✅ **Smoke tests passed** on all platforms" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Smoke tests failed** on one or more platforms" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Tested on:" >> $GITHUB_STEP_SUMMARY
+          echo "- Ubuntu (Python 3.9, 3.10, 3.11, 3.12, 3.13)" >> $GITHUB_STEP_SUMMARY
+          echo "- macOS (Python 3.9, 3.10, 3.11, 3.12, 3.13)" >> $GITHUB_STEP_SUMMARY
