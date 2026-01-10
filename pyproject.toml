@@ -44,9 +44,7 @@ classifiers = [
     "Topic :: Database",
 ]
 requires-python = ">=3.9"
-dependencies = [
-    "attrs",
-]
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/everyabc/rdbpy"
