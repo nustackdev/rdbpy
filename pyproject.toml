@@ -13,7 +13,7 @@ name = "rdbpython"
 version = "0.1.0"
 description = "Python bindings for RocksDB with Cython"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Gor Arakelyan", email = "gorarkln@gmail.com"}
 ]
@@ -136,7 +136,7 @@ before-all = [
 
 environment = { RDBPY_DEP_DIR="/tmp/rdbpy_deps", LD_LIBRARY_PATH="/tmp/rdbpy_deps/lib", LIBRARY_PATH="/tmp/rdbpy_deps/lib", PKG_CONFIG_PATH="/tmp/rdbpy_deps/lib/pkgconfig" }
 
-repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
+repair-wheel-command = "LD_LIBRARY_PATH=/tmp/rdbpy_deps/lib:$LD_LIBRARY_PATH auditwheel repair -w {dest_dir} {wheel} --lib-sdir .libs"
 
 test-command = [
     "python -c \"import rdbpy; print('rdbpy imported successfully')\"",
