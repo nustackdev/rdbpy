@@ -134,7 +134,9 @@ before-all = [
     "bash {project}/scripts/build-rocksdb-linux.sh"
 ]
 
-environment = { RDBPY_DEP_DIR="/tmp/rdbpy_deps", LD_LIBRARY_PATH="/tmp/rdbpy_deps/lib:$LD_LIBRARY_PATH" }
+environment = { RDBPY_DEP_DIR="/tmp/rdbpy_deps", LD_LIBRARY_PATH="/tmp/rdbpy_deps/lib", LIBRARY_PATH="/tmp/rdbpy_deps/lib", PKG_CONFIG_PATH="/tmp/rdbpy_deps/lib/pkgconfig" }
+
+repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
 
 test-command = [
     "python -c \"import rdbpy; print('rdbpy imported successfully')\"",

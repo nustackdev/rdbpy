@@ -6,7 +6,7 @@
 # Documentation and Metadata
 # ============================================================================
 include README.md
-include LICENSE
+include LICENSE.md
 include pyproject.toml
 include setup.py
 
@@ -18,23 +18,24 @@ recursive-include src py.typed
 # ============================================================================
 include scripts/build-rocksdb-linux.sh
 include scripts/build-rocksdb-macos.sh
+include scripts/rocksdb-cstdint.patch
 
 # ============================================================================
-# rocksdb Package Files
+# rdbpy Package Files
 # ============================================================================
 # Cython source files (.pyx, .pxd)
-recursive-include src/rocksdb *.pyx
-recursive-include src/rocksdb *.pxd
+recursive-include src/rdbpy *.pyx
+recursive-include src/rdbpy *.pxd
 
 # C++ wrapper headers
-recursive-include src/rocksdb/include *.hpp
-recursive-include src/rocksdb/include *.h
+recursive-include src/rdbpy/include *.hpp
+recursive-include src/rdbpy/include *.h
 
 # Python type stubs
-recursive-include src/rocksdb *.pyi
+recursive-include src/rdbpy *.pyi
 
 # Python files
-recursive-include src/rocksdb *.py
+recursive-include src/rdbpy *.py
 
 # ============================================================================
 # Tests

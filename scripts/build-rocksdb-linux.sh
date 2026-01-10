@@ -188,10 +188,50 @@ cd /tmp && rm -rf "rocksdb-${ROCKSDB_VERSION}"*
 echo "✓ RocksDB built successfully"
 
 # ==============================================================================
-# Verify
+# Create symlinks for versioned libraries
+# ==============================================================================
+echo "Creating symlinks for versioned libraries..."
+cd "$PREFIX/lib"
+
+# Create .so symlinks if only versioned libraries exist
+for lib in libsnappy liblz4 libzstd libbz2; do
+    if [ ! -f "${lib}.so" ] && [ ! -L "${lib}.so" ]; then
+        # Find the versioned library (e.g., libsnappy.so.1.2.1)
+        versioned=$(ls -1 ${lib}.so.* 2>/dev/null | head -1 || true)
+        if [ -n "$versioned" ]; then
+            echo "  Creating symlink: ${lib}.so -> $(basename $versioned)"
+            ln -sf "$(basename $versioned)" "${lib}.so"
+        fi
+    fi
+done
+
+# libz might be libz.so.1, ensure libz.so exists
+if [ ! -f "libz.so" ] && [ ! -L "libz.so" ]; then
+    if [ -f "libz.so.1" ] || [ -L "libz.so.1" ]; then
+        echo "  Creating symlink: libz.so -> libz.so.1"
+        ln -sf "libz.so.1" "libz.so"
+    fi
+fi
+
+cd /tmp
+echo "✓ Symlinks created"
+
+# ==============================================================================
+# Verify and Create pkg-config files
 # ==============================================================================
 echo "========================================="
 echo "Build complete!"
-echo "Libraries:"
-ls -lh "$PREFIX/lib"/*.{a,so}* 2>/dev/null || true
+echo "Libraries installed to: $PREFIX/lib"
+ls -lh "$PREFIX/lib"/*.{a,so}* 2>/dev/null || ls -lh "$PREFIX/lib" || true
+echo ""
+echo "Verifying critical libraries..."
+for lib in librocksdb.so libsnappy.so liblz4.so libzstd.so libz.so libbz2.so; do
+    if [ -f "$PREFIX/lib/$lib" ] || [ -L "$PREFIX/lib/$lib" ]; then
+        echo "✓ Found: $lib"
+    else
+        echo "✗ Missing: $lib (this may cause linking issues)"
+        # Try to find it with version suffix
+        find "$PREFIX/lib" -name "${lib}*" 2>/dev/null | head -3 || true
+    fi
+done
 echo "========================================="
