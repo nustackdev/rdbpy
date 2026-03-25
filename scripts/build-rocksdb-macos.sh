@@ -60,7 +60,7 @@ rewrite_dep_rpath() {
 # zlib
 echo "Building zlib..."
 ZLIB_VERSION="1.3.1"
-curl -L "https://www.zlib.net/zlib-${ZLIB_VERSION}.tar.gz" -o "zlib-${ZLIB_VERSION}.tar.gz"
+curl -L "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz" -o "zlib-${ZLIB_VERSION}.tar.gz"
 tar xzf "zlib-${ZLIB_VERSION}.tar.gz"
 cd "zlib-${ZLIB_VERSION}"
 ./configure --prefix="$PREFIX"
