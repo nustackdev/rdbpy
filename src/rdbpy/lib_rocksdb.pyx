@@ -2662,7 +2662,8 @@ cdef class Transaction(object):
     cpdef void commit(self):
         self._ensure_open()
         cdef Status st
-        st = self.txn.Commit()
+        with nogil:
+            st = self.txn.Commit()
         self.closed = True
         self.txn = NULL  # Pointer invalid after commit
         check_status(st)
@@ -2673,7 +2674,8 @@ cdef class Transaction(object):
         if self.txn == NULL:
             return
         cdef Status st
-        st = self.txn.Rollback()
+        with nogil:
+            st = self.txn.Rollback()
         self.closed = True
         self.txn = NULL  # Pointer invalid after rollback
         check_status(st)
@@ -2746,9 +2748,11 @@ cdef class Transaction(object):
         cdef db.ColumnFamilyHandle* cf_handle
         if column_family is not None:
             cf_handle = column_family.get_handle()
-            st = self.txn.Put(cf_handle, c_key, c_value, assume_tracked)
+            with nogil:
+                st = self.txn.Put(cf_handle, c_key, c_value, assume_tracked)
         else:
-            st = self.txn.Put(c_key, c_value)
+            with nogil:
+                st = self.txn.Put(c_key, c_value)
         check_status(st)
 
     cpdef void merge(self, bytes key, bytes value, ColumnFamilyHandle column_family = None, cpp_bool assume_tracked = False):
@@ -2759,9 +2763,11 @@ cdef class Transaction(object):
         cdef db.ColumnFamilyHandle* cf_handle
         if column_family is not None:
             cf_handle = column_family.get_handle()
-            st = self.txn.Merge(cf_handle, c_key, c_value, assume_tracked)
+            with nogil:
+                st = self.txn.Merge(cf_handle, c_key, c_value, assume_tracked)
         else:
-            st = self.txn.Merge(c_key, c_value)
+            with nogil:
+                st = self.txn.Merge(c_key, c_value)
         check_status(st)
 
     cpdef void delete_single(self, bytes key, ColumnFamilyHandle column_family = None, cpp_bool assume_tracked = False):
@@ -2771,9 +2777,11 @@ cdef class Transaction(object):
         cdef db.ColumnFamilyHandle* cf_handle
         if column_family is not None:
             cf_handle = column_family.get_handle()
-            st = self.txn.Delete(cf_handle, c_key, assume_tracked)
+            with nogil:
+                st = self.txn.Delete(cf_handle, c_key, assume_tracked)
         else:
-            st = self.txn.Delete(c_key)
+            with nogil:
+                st = self.txn.Delete(c_key)
         check_status(st)
 
     cpdef get(self, bytes key, ColumnFamilyHandle column_family = None):
@@ -2781,10 +2789,12 @@ cdef class Transaction(object):
         cdef Status st
         cdef string res
         cdef options.ReadOptions opts
+        cdef Slice c_key = bytes_to_slice(key)
         cdef db.ColumnFamilyHandle* cf_handle = self.db.db.DefaultColumnFamily()
         if column_family is not None:
             cf_handle = column_family.get_handle()
-        st = self.txn.Get(opts, cf_handle, bytes_to_slice(key), cython.address(res))
+        with nogil:
+            st = self.txn.Get(opts, cf_handle, c_key, cython.address(res))
 
         if st.ok():
             return string_to_bytes(res)
