@@ -47,10 +47,10 @@ requires-python = ">=3.9"
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/everyabc/rdbpy"
-Documentation = "https://github.com/everyabc/rdbpy#readme"
-Repository = "https://github.com/everyabc/rdbpy"
-Issues = "https://github.com/everyabc/rdbpy/issues"
+Homepage = "https://github.com/nustackdev/rdbpy"
+Documentation = "https://github.com/nustackdev/rdbpy#readme"
+Repository = "https://github.com/nustackdev/rdbpy"
+Issues = "https://github.com/nustackdev/rdbpy/issues"
 PyPI = "https://pypi.org/project/rdbpython/"
 
 [project.optional-dependencies]

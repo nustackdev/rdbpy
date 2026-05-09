@@ -1,7 +1,7 @@
 # rdbpy
 
-[![Build Wheels](https://github.com/everyabc/rdbpy/actions/workflows/build.yml/badge.svg)](https://github.com/everyabc/rdbpy/actions/workflows/build.yml)
-[![Tests](https://github.com/everyabc/rdbpy/actions/workflows/test.yml/badge.svg)](https://github.com/everyabc/rdbpy/actions/workflows/test.yml)
+[![Build Wheels](https://github.com/nustackdev/rdbpy/actions/workflows/build.yml/badge.svg)](https://github.com/nustackdev/rdbpy/actions/workflows/build.yml)
+[![Tests](https://github.com/nustackdev/rdbpy/actions/workflows/test.yml/badge.svg)](https://github.com/nustackdev/rdbpy/actions/workflows/test.yml)
 [![PyPI version](https://badge.fury.io/py/rdbpython.svg)](https://pypi.org/project/rdbpython/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/rdbpython.svg)](https://pypi.org/project/rdbpython/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
