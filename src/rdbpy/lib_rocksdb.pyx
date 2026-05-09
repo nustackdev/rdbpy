@@ -2682,10 +2682,19 @@ cdef class Transaction(object):
         self.closed = True
 
     def __dealloc__(self):
-        # If still open, rollback. RocksDB handles deletion after rollback.
-        if self.txn != NULL and not self.closed:
-            self.txn.Rollback()
-        self.txn = NULL
+        # RocksDB's BeginTransaction returns a heap-allocated Transaction*
+        # that the caller owns. Commit() and Rollback() do NOT delete the
+        # object - we must `del` it explicitly. Without this, every
+        # committed/rolled-back transaction leaks its WriteBatch and
+        # tracking state.
+        cdef transaction.Transaction* tmp = self.txn
+        if tmp != NULL:
+            if not self.closed:
+                with nogil:
+                    tmp.Rollback()
+            with nogil:
+                del tmp
+            self.txn = NULL
 
     cpdef void close(self):
         """Close the transaction by rolling it back."""
@@ -2702,10 +2711,12 @@ cdef class Transaction(object):
     cpdef void commit(self):
         self._ensure_open()
         cdef Status st
+        cdef transaction.Transaction* tmp = self.txn
         with nogil:
-            st = self.txn.Commit()
+            st = tmp.Commit()
+            del tmp
         self.closed = True
-        self.txn = NULL  # Pointer invalid after commit
+        self.txn = NULL
         check_status(st)
 
     cpdef void rollback(self):
@@ -2714,10 +2725,12 @@ cdef class Transaction(object):
         if self.txn == NULL:
             return
         cdef Status st
+        cdef transaction.Transaction* tmp = self.txn
         with nogil:
-            st = self.txn.Rollback()
+            st = tmp.Rollback()
+            del tmp
         self.closed = True
-        self.txn = NULL  # Pointer invalid after rollback
+        self.txn = NULL
         check_status(st)
 
     cpdef void prepare(self):
