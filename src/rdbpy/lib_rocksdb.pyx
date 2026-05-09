@@ -591,7 +591,16 @@ cdef class BlockBasedTableFactory(PyTableFactory):
             block_size=None,
             block_size_deviation=None,
             block_restart_interval=None,
-            whole_key_filtering=None):
+            whole_key_filtering=None,
+            cache_index_and_filter_blocks=None,
+            cache_index_and_filter_blocks_with_high_priority=None,
+            pin_l0_filter_and_index_blocks_in_cache=None,
+            pin_top_level_index_and_filter=None,
+            partition_filters=None,
+            metadata_block_size=None,
+            format_version=None,
+            optimize_filters_for_memory=None,
+            read_amp_bytes_per_bit=None):
 
         cdef table_factory.BlockBasedTableOptions table_options
 
@@ -634,6 +643,37 @@ cdef class BlockBasedTableFactory(PyTableFactory):
                 table_options.whole_key_filtering = True
             else:
                 table_options.whole_key_filtering = False
+
+        if cache_index_and_filter_blocks is not None:
+            table_options.cache_index_and_filter_blocks = bool(cache_index_and_filter_blocks)
+
+        if cache_index_and_filter_blocks_with_high_priority is not None:
+            table_options.cache_index_and_filter_blocks_with_high_priority = bool(
+                cache_index_and_filter_blocks_with_high_priority
+            )
+
+        if pin_l0_filter_and_index_blocks_in_cache is not None:
+            table_options.pin_l0_filter_and_index_blocks_in_cache = bool(
+                pin_l0_filter_and_index_blocks_in_cache
+            )
+
+        if pin_top_level_index_and_filter is not None:
+            table_options.pin_top_level_index_and_filter = bool(pin_top_level_index_and_filter)
+
+        if partition_filters is not None:
+            table_options.partition_filters = bool(partition_filters)
+
+        if metadata_block_size is not None:
+            table_options.metadata_block_size = metadata_block_size
+
+        if format_version is not None:
+            table_options.format_version = format_version
+
+        if optimize_filters_for_memory is not None:
+            table_options.optimize_filters_for_memory = bool(optimize_filters_for_memory)
+
+        if read_amp_bytes_per_bit is not None:
+            table_options.read_amp_bytes_per_bit = read_amp_bytes_per_bit
 
         if block_cache is not None:
             table_options.block_cache = block_cache.get_cache()

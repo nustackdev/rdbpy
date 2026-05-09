@@ -27,6 +27,15 @@ cdef extern from "rocksdb/table.h" namespace "rocksdb":
         int block_size_deviation
         int block_restart_interval
         cpp_bool whole_key_filtering
+        cpp_bool cache_index_and_filter_blocks
+        cpp_bool cache_index_and_filter_blocks_with_high_priority
+        cpp_bool pin_l0_filter_and_index_blocks_in_cache
+        cpp_bool pin_top_level_index_and_filter
+        cpp_bool partition_filters
+        size_t metadata_block_size
+        uint32_t format_version
+        cpp_bool optimize_filters_for_memory
+        int read_amp_bytes_per_bit
         shared_ptr[Cache] block_cache
         shared_ptr[Cache] block_cache_compressed
         shared_ptr[FilterPolicy] filter_policy
