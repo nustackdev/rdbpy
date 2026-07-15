@@ -226,6 +226,32 @@ class TestDB(TestHelper):
 
         self.assertEqual(ref, list(reversed(it)))
 
+    def test_iter_skip_back(self) -> None:
+        for x in range(10):
+            self.db.put(int_to_bytes(x), int_to_bytes(x * 10))
+
+        it = self.db.iteritems()
+        it.seek(b"5")
+        self.assertEqual(it.get(), (b"5", b"50"))
+        it.skip_back()
+        self.assertEqual(it.get(), (b"4", b"40"))
+        it.skip_back()
+        self.assertEqual(it.get(), (b"3", b"30"))
+        it.skip()
+        self.assertEqual(it.get(), (b"4", b"40"))
+
+        it = self.db.iterkeys()
+        it.seek_to_last()
+        self.assertEqual(it.get(), b"9")
+        it.skip_back()
+        self.assertEqual(it.get(), b"8")
+
+        it = self.db.iterkeys()
+        it.seek_to_first()
+        with self.assertRaises(ValueError):
+            for _ in range(20):
+                it.skip_back()
+
     def test_snapshot(self) -> None:
         self.db.put(b"a", b"1")
         self.db.put(b"b", b"2")

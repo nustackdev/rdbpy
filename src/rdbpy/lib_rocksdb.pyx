@@ -3041,6 +3041,9 @@ cdef class Iterator:
     cpdef void skip(self):
         self._current_value = None
 
+    cpdef void skip_back(self):
+        self._current_value = None
+
 
 cdef class BaseIterator(Iterator):
     # pxd defines:
@@ -3080,6 +3083,13 @@ cdef class BaseIterator(Iterator):
             raise ValueError()
         with nogil:
             self.ptr.Next()
+        check_status(self.ptr.status())
+
+    cpdef void skip_back(self):
+        if not self.ptr.Valid():
+            raise ValueError()
+        with nogil:
+            self.ptr.Prev()
         check_status(self.ptr.status())
 
     def __reversed__(self):

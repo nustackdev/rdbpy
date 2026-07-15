@@ -714,6 +714,7 @@ cdef class Iterator:
     cpdef object next(self)
     cpdef object get(self)
     cpdef void skip(self)
+    cpdef void skip_back(self)
 
 
 cdef class BaseIterator(Iterator):
