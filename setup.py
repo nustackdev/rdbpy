@@ -194,6 +194,9 @@ def get_link_args() -> list[str]:
             [
                 "-stdlib=libc++",
                 f"-mmacosx-version-min={os.environ.get('MACOSX_DEPLOYMENT_TARGET', '10.14')}",
+                # Reserve Mach-O header pad so delocate can rewrite @rpath -> @loader_path/.dylibs
+                # without hitting install_name_tool's "load commands don't fit" error on cp314.
+                "-Wl,-headerpad_max_install_names",
             ]
         )
 
