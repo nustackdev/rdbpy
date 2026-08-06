@@ -241,7 +241,7 @@ directory = "tests/reports/coverage"
 # ============================================================================
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py39"
 src = ["src", "tests"]
 extend-exclude = [
     ".venv",
@@ -317,7 +317,7 @@ docstring-code-line-length = 80
 # Type Checking - mypy
 # ============================================================================
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
