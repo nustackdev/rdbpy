@@ -21,12 +21,14 @@ maintainers = [
     {name = "Gor Arakelyan", email = "gorarkln@gmail.com"}
 ]
 keywords = [
+    "nustack",
+    "python",
     "rocksdb",
-    "database",
-    "key-value",
+    "key-value-store",
+    "embedded-database",
+    "transactions",
+    "bindings",
     "storage",
-    "embedded",
-    "cython"
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
