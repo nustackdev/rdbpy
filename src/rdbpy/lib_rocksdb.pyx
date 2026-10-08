@@ -100,6 +100,43 @@ cdef check_status(const Status& st):
 ######################################################
 
 
+## Lifetime of native children (iterators, snapshots, transactions).
+# A parent records the address of each live child in a set (an int, not a
+# reference, so no cycle). Before freeing its own native state the parent
+# frees the children's native state; a child drops its entry in __dealloc__.
+# Children are no_gc_clear so they can still reach their parent there.
+#
+# Re-entrancy rules, because gc (and the finalizers it runs) can fire on any
+# allocation of a gc-tracked object on CPython <= 3.11, and on any thread:
+# - Registries are walked with set.pop(): it allocates nothing, so no gc can
+#   run mid-walk, and an entry is gone before it is used.
+# - Between checking a native pointer and using it, nothing may allocate a
+#   gc-tracked object or call into Python; otherwise check again after.
+# - Native frees on release paths keep the GIL, so no other thread can run
+#   between a child unregistering and its native state being freed.
+cdef inline size_t _addr(object ob):
+    return <size_t><void*>ob
+
+cdef void _invalidate_iterators(set registry):
+    cdef BaseIterator it
+    if registry is None:
+        return
+    while registry:
+        it = <BaseIterator><void*><size_t>registry.pop()
+        it._invalidate()
+
+cdef void _release_snapshots(DB parent):
+    cdef Snapshot snap
+    if parent._snapshots is None:
+        return
+    while parent._snapshots:
+        snap = <Snapshot><void*><size_t>parent._snapshots.pop()
+        if snap.ptr != NULL:
+            parent.db.ReleaseSnapshot(snap.ptr)
+            snap.ptr = NULL
+######################################################
+
+
 cdef string bytes_to_string(path) except *:
     return string(PyBytes_AsString(path), PyBytes_Size(path))
 
@@ -1845,6 +1882,9 @@ cdef class DB(IDB):
         cdef vector[db.ColumnFamilyDescriptor] column_family_descriptors
         cdef vector[db.ColumnFamilyHandle*] column_family_handles
         cdef bytes default_cf_name = db.kDefaultColumnFamilyName
+        self._iterators = set()
+        self._snapshots = set()
+        self._transactions = set()
         self.db = NULL
         self.opts = None
         self.cf_handles = []
@@ -1968,19 +2008,39 @@ cdef class DB(IDB):
     def __dealloc__(self):
         self.close()
 
+    cdef int _check_open(self) except -1:
+        if self.db == NULL:
+            raise RuntimeError("DB is closed")
+        return 0
+
     cpdef void close(self):
+        """Close the DB. Live iterators and snapshots are invalidated first.
+
+        Close only after every thread is done with the DB and its iterators:
+        rdbpy does no locking of its own.
+        """
         cdef ColumnFamilyOptions copts
+        cdef db.DB* tmp_db
         if self.db != NULL:
+            # Iterators and snapshots point into the DB: free them first.
+            _invalidate_iterators(self._iterators)
+            _release_snapshots(self)
+
             # We have to make sure we delete the handles so rocksdb doesn't
             # assert when we delete the db
             self.cf_handles.clear()
+
+            tmp_db = self.db
+            self.db = NULL
+            with nogil:
+                del tmp_db
+
+            # Column family options hold the comparators and merge operators
+            # the DB calls into, so release them only after the DB is gone.
             for copts in self.cf_options:
                 if copts:
                     copts.in_use = False
             self.cf_options.clear()
-
-            with nogil:
-                del self.db
 
         if self.opts is not None:
             self.opts.in_use = False
@@ -1995,6 +2055,7 @@ cdef class DB(IDB):
                 return handle.weakref
 
     cpdef void put(self, bytes key, bytes value, cpp_bool sync = False, cpp_bool disable_wal = False, ColumnFamilyHandle column_family = None):
+        self._check_open()
         cdef Status st
         cdef options.WriteOptions opts
         opts.sync = sync
@@ -2015,6 +2076,7 @@ cdef class DB(IDB):
         self.delete_single(key, sync=sync, disable_wal=disable_wal, column_family=column_family)
 
     cpdef void delete_single(self, bytes key, cpp_bool sync = False, cpp_bool disable_wal = False, ColumnFamilyHandle column_family = None):
+        self._check_open()
         cdef Status st
         cdef options.WriteOptions opts
         opts.sync = sync
@@ -2031,6 +2093,7 @@ cdef class DB(IDB):
         check_status(st)
 
     cpdef void delete_range(self, bytes begin_key, bytes end_key, cpp_bool sync = False, cpp_bool disable_wal = False, ColumnFamilyHandle column_family = None):
+        self._check_open()
         cdef Status st
         cdef options.WriteOptions opts
         opts.sync = sync
@@ -2048,6 +2111,7 @@ cdef class DB(IDB):
         check_status(st)
 
     cpdef void flush(self):
+        self._check_open()
         cdef Status st
         cdef FlushOptions options
         cdef db.ColumnFamilyHandle* cf_handle = self.db.DefaultColumnFamily()
@@ -2057,6 +2121,7 @@ cdef class DB(IDB):
         check_status(st)
 
     cpdef void flush_wal(self, cpp_bool sync = False):
+        self._check_open()
         cdef Status st
         cdef cpp_bool c_sync = sync
         with nogil:
@@ -2064,6 +2129,7 @@ cdef class DB(IDB):
         check_status(st)
 
     cpdef void merge(self, bytes key, bytes value, cpp_bool sync = False, cpp_bool disable_wal = False, ColumnFamilyHandle column_family = None):
+        self._check_open()
         cdef Status st
         cdef options.WriteOptions opts
         opts.sync = sync
@@ -2080,6 +2146,9 @@ cdef class DB(IDB):
         check_status(st)
 
     cpdef void write(self, WriteBatch batch, cpp_bool sync = False, cpp_bool disable_wal = False):
+        if batch is None:
+            raise TypeError("batch must be a WriteBatch, not None")
+        self._check_open()
         cdef Status st
         cdef options.WriteOptions opts
         opts.sync = sync
@@ -2090,6 +2159,7 @@ cdef class DB(IDB):
         check_status(st)
 
     cpdef get(self, bytes key, ColumnFamilyHandle column_family = None):
+        self._check_open()
         cdef string res
         cdef Status st
         cdef options.ReadOptions opts
@@ -2110,24 +2180,30 @@ cdef class DB(IDB):
             check_status(st)
 
     cpdef multi_get(self, keys):
+        self._check_open()
         cdef vector[string] values
         values.resize(len(keys))
 
         cdef db.ColumnFamilyHandle* cf_handle
         cdef vector[db.ColumnFamilyHandle*] cf_handles
         cdef vector[Slice] c_keys
+        # Read once: iterating keys can run Python code that closes the DB.
+        # The pointer is only used after the re-check below the loop.
+        cdef db.ColumnFamilyHandle* default_cf = self.db.DefaultColumnFamily()
         for key in keys:
             if isinstance(key, tuple):
                 py_handle, key = key
                 cf_handle = (<ColumnFamilyHandle?>py_handle).get_handle()
             else:
-                cf_handle = self.db.DefaultColumnFamily()
+                cf_handle = default_cf
             c_keys.push_back(bytes_to_slice(key))
             cf_handles.push_back(cf_handle)
 
         cdef options.ReadOptions opts
 
         cdef vector[Status] res
+        # Iterating keys may have run Python code.
+        self._check_open()
         with nogil:
             res = self.db.MultiGet(
                 opts,
@@ -2147,6 +2223,7 @@ cdef class DB(IDB):
         return ret_dict
 
     cpdef key_may_exist(self, bytes key, cpp_bool fetch = False, ColumnFamilyHandle column_family = None):
+        self._check_open()
         cdef string value
         cdef cpp_bool value_found
         cdef cpp_bool exists
@@ -2189,126 +2266,163 @@ cdef class DB(IDB):
 
     cpdef Iterator iterkeys(self, ColumnFamilyHandle column_family = None):
         cdef options.ReadOptions opts
-        cdef KeysIterator it
-        cdef db.ColumnFamilyHandle* cf_handle = self.db.DefaultColumnFamily()
+        cdef db.ColumnFamilyHandle* cf_handle
+        # Allocate first: an allocation may run gc, and a finalizer may close us.
+        cdef KeysIterator it = KeysIterator(self)
+        it.owner = self
+        self._check_open()
+        cf_handle = self.db.DefaultColumnFamily()
         if column_family is not None:
             cf_handle = column_family.get_handle()
 
-        it = KeysIterator(self)
-        it.owner = self
-
         with nogil:
             it.ptr = self.db.NewIterator(opts, cf_handle)
+        self._iterators.add(_addr(it))
         return it
 
     cpdef Iterator itervalues(self, ColumnFamilyHandle column_family = None):
         cdef options.ReadOptions opts
-        cdef ValuesIterator it
-        cdef db.ColumnFamilyHandle* cf_handle = self.db.DefaultColumnFamily()
+        cdef db.ColumnFamilyHandle* cf_handle
+        # Allocate first: an allocation may run gc, and a finalizer may close us.
+        cdef ValuesIterator it = ValuesIterator(self)
+        it.owner = self
+        self._check_open()
+        cf_handle = self.db.DefaultColumnFamily()
         if column_family is not None:
             cf_handle = column_family.get_handle()
 
-        it = ValuesIterator(self)
-        it.owner = self
-
         with nogil:
             it.ptr = self.db.NewIterator(opts, cf_handle)
+        self._iterators.add(_addr(it))
         return it
 
     cpdef Iterator iteritems(self, ColumnFamilyHandle column_family = None):
         cdef options.ReadOptions opts
-        cdef ItemsIterator it
-        cdef db.ColumnFamilyHandle* cf_handle = self.db.DefaultColumnFamily()
+        cdef db.ColumnFamilyHandle* cf_handle
+        # Allocate first: an allocation may run gc, and a finalizer may close us.
+        cdef ItemsIterator it = ItemsIterator.__new__(ItemsIterator)
+        it.db = self
+        it.owner = self
+        self._check_open()
+        cf_handle = self.db.DefaultColumnFamily()
         if column_family is not None:
             cf_handle = column_family.get_handle()
 
-        it = ItemsIterator.__new__(ItemsIterator)
-        it.db = self
-        it.owner = self
-
         with nogil:
             it.ptr = self.db.NewIterator(opts, cf_handle)
+        self._iterators.add(_addr(it))
         return it
 
     cpdef iterskeys(self, column_families):
         cdef vector[db.Iterator*] iters
-        iters.resize(len(column_families))
+        cdef Status st
         cdef options.ReadOptions opts
-        cdef db.Iterator* it_ptr
         cdef KeysIterator it
         cdef db.ColumnFamilyHandle* cf_handle
         cdef vector[db.ColumnFamilyHandle*] cf_handles
+        cdef Py_ssize_t i
 
+        # Build every wrapper first: allocations may run gc, and a finalizer
+        # may close us. Nothing below allocates until the pointers are owned.
+        cdef list ret = [KeysIterator(self, column_family) for column_family in column_families]
+        self._check_open()
         for column_family in column_families:
             cf_handle = (<ColumnFamilyHandle?>column_family).get_handle()
             cf_handles.push_back(cf_handle)
+        # Iterating column_families may have run Python code.
+        self._check_open()
+        if <Py_ssize_t>cf_handles.size() != len(ret):
+            raise ValueError("column_families must be a sequence")
+        iters.resize(cf_handles.size())
 
         with nogil:
-            self.db.NewIterators(opts, cf_handles, &iters)
+            st = self.db.NewIterators(opts, cf_handles, &iters)
+        check_status(st)
+        if <Py_ssize_t>iters.size() != len(ret):
+            raise RuntimeError("NewIterators returned an unexpected number of iterators")
 
-        cf_iter = iter(column_families)
-        cdef list ret = []
-        for it_ptr in iters:
-            it = KeysIterator(self, next(cf_iter))
-            it.ptr = it_ptr
+        for i in range(len(ret)):
+            it = <KeysIterator>ret[i]
+            it.ptr = iters[i]
             it.owner = self
-            ret.append(it)
+            self._iterators.add(_addr(it))
         return ret
 
     cpdef itersvalues(self, column_families):
         cdef vector[db.Iterator*] iters
-        iters.resize(len(column_families))
+        cdef Status st
         cdef options.ReadOptions opts
-        cdef db.Iterator* it_ptr
         cdef ValuesIterator it
         cdef db.ColumnFamilyHandle* cf_handle
         cdef vector[db.ColumnFamilyHandle*] cf_handles
+        cdef Py_ssize_t i
 
+        # Build every wrapper first: allocations may run gc, and a finalizer
+        # may close us. Nothing below allocates until the pointers are owned.
+        cdef list ret = [ValuesIterator(self) for column_family in column_families]
+        self._check_open()
         for column_family in column_families:
             cf_handle = (<ColumnFamilyHandle?>column_family).get_handle()
             cf_handles.push_back(cf_handle)
+        # Iterating column_families may have run Python code.
+        self._check_open()
+        if <Py_ssize_t>cf_handles.size() != len(ret):
+            raise ValueError("column_families must be a sequence")
+        iters.resize(cf_handles.size())
 
         with nogil:
-            self.db.NewIterators(opts, cf_handles, &iters)
+            st = self.db.NewIterators(opts, cf_handles, &iters)
+        check_status(st)
+        if <Py_ssize_t>iters.size() != len(ret):
+            raise RuntimeError("NewIterators returned an unexpected number of iterators")
 
-        cdef list ret = []
-        for it_ptr in iters:
-            it = ValuesIterator(self)
-            it.ptr = it_ptr
+        for i in range(len(ret)):
+            it = <ValuesIterator>ret[i]
+            it.ptr = iters[i]
             it.owner = self
-            ret.append(it)
+            self._iterators.add(_addr(it))
         return ret
 
     cpdef itersitems(self, column_families):
         cdef vector[db.Iterator*] iters
-        iters.resize(len(column_families))
+        cdef Status st
         cdef options.ReadOptions opts
-        cdef db.Iterator* it_ptr
         cdef ItemsIterator it
         cdef db.ColumnFamilyHandle* cf_handle
         cdef vector[db.ColumnFamilyHandle*] cf_handles
+        cdef Py_ssize_t i
 
+        # Build every wrapper first: allocations may run gc, and a finalizer
+        # may close us. Nothing below allocates until the pointers are owned.
+        cdef list ret = [ItemsIterator(self, column_family) for column_family in column_families]
+        self._check_open()
         for column_family in column_families:
             cf_handle = (<ColumnFamilyHandle?>column_family).get_handle()
             cf_handles.push_back(cf_handle)
+        # Iterating column_families may have run Python code.
+        self._check_open()
+        if <Py_ssize_t>cf_handles.size() != len(ret):
+            raise ValueError("column_families must be a sequence")
+        iters.resize(cf_handles.size())
 
         with nogil:
-            self.db.NewIterators(opts, cf_handles, &iters)
+            st = self.db.NewIterators(opts, cf_handles, &iters)
+        check_status(st)
+        if <Py_ssize_t>iters.size() != len(ret):
+            raise RuntimeError("NewIterators returned an unexpected number of iterators")
 
-
-        cf_iter = iter(column_families)
-        cdef list ret = []
-        for it_ptr in iters:
-            it = ItemsIterator(self, next(cf_iter))
-            it.ptr = it_ptr
+        for i in range(len(ret)):
+            it = <ItemsIterator>ret[i]
+            it.ptr = iters[i]
             it.owner = self
-            ret.append(it)
+            self._iterators.add(_addr(it))
         return ret
 
     cpdef snapshot(self):
         return Snapshot(self)
 
     cpdef get_property(self, prop, ColumnFamilyHandle column_family = None):
+        self._check_open()
         cdef string value
         cdef Slice c_prop = bytes_to_slice(prop)
         cdef cpp_bool ret = False
@@ -2325,9 +2439,11 @@ cdef class DB(IDB):
             return None
 
     cpdef try_catch_up_with_primary(self):
+        self._check_open()
         self.db.TryCatchUpWithPrimary()
 
     cpdef get_live_files_metadata(self):
+        self._check_open()
         cdef vector[db.LiveFileMetaData] metadata
 
         with nogil:
@@ -2357,6 +2473,7 @@ cdef class DB(IDB):
         str bottommost_level_compaction = 'if_compaction_filter',
         ColumnFamilyHandle column_family = None
     ):
+        self._check_open()
         cdef options.CompactRangeOptions c_options
 
         c_options.change_level = change_level
@@ -2428,6 +2545,7 @@ cdef class DB(IDB):
             return self.opts
 
     cpdef create_column_family(self, bytes name, ColumnFamilyOptions copts):
+        self._check_open()
         cdef db.ColumnFamilyHandle* cf_handle
         cdef Status st
         cdef string c_name = name
@@ -2451,6 +2569,7 @@ cdef class DB(IDB):
         return handle.weakref
 
     cpdef void drop_column_family(self, ColumnFamilyHandle weak_handle):
+        self._check_open()
         cdef db.ColumnFamilyHandle* cf_handle
         cdef ColumnFamilyOptions copts
         cdef Status st
@@ -2623,6 +2742,12 @@ cdef class TransactionDB(DB):
                 raise ValueError("Reuse transaction handle is closed")
             if reuse.db is not self:
                 raise ValueError("Reuse transaction belongs to a different TransactionDB")
+            # Reinitializing clears the write batch the iterators point into.
+            _invalidate_iterators(reuse._iterators)
+            if reuse.txn == NULL:
+                raise ValueError("Reuse transaction handle is closed")
+            if self.txn_db == NULL:
+                raise RuntimeError("TransactionDB is closed")
             raw_txn = self.txn_db.BeginTransaction(
                 wopts,
                 deref(txn_opts_ptr),
@@ -2634,6 +2759,11 @@ cdef class TransactionDB(DB):
             reuse.closed = False
             return reuse
 
+        # Allocate the wrapper first: an allocation may run gc, and a
+        # finalizer may close this DB. Nothing allocates after the check.
+        cdef Transaction txn = Transaction.__new__(Transaction)
+        if self.txn_db == NULL:
+            raise RuntimeError("TransactionDB is closed")
         raw_txn = self.txn_db.BeginTransaction(
             wopts,
             deref(txn_opts_ptr))
@@ -2641,10 +2771,10 @@ cdef class TransactionDB(DB):
         if raw_txn == NULL:
             raise RuntimeError("BeginTransaction returned NULL")
 
-        cdef Transaction txn = Transaction.__new__(Transaction)
         txn.txn = raw_txn
         txn.db = self
         txn.closed = False
+        self._transactions.add(_addr(txn))
         return txn
 
     def __dealloc__(self):
@@ -2652,18 +2782,42 @@ cdef class TransactionDB(DB):
         self.close()
 
     cpdef void close(self):
-        # Clear handles first
-        self.cf_handles.clear()
+        """Close the DB. Open transactions are rolled back and live
+        iterators and snapshots are invalidated first.
 
-        # Delete the C++ object ONCE
+        Close only after every thread is done with the DB, its transactions
+        and iterators: rdbpy does no locking of its own.
+        """
+        cdef Transaction txn
+        cdef ColumnFamilyOptions copts
+        cdef transaction.CppTransactionDB* tmp_txn_db
+
+        # Transactions (and their iterators), DB iterators and snapshots
+        # point into the DB: free them first.
+        if self._transactions is not None:
+            while self._transactions:
+                txn = <Transaction><void*><size_t>self._transactions.pop()
+                txn._release()
         if self.txn_db != NULL:
-            with nogil:
-                del self.txn_db
-            self.txn_db = NULL
+            _invalidate_iterators(self._iterators)
+            _release_snapshots(self)
 
-            # CRITICAL: Set aliased pointer to NULL
-            # This prevents parent from trying to delete
+            # Clear handles first
+            self.cf_handles.clear()
+
+            # Delete the C++ object ONCE. Both pointers are NULL before the
+            # delete so nothing can reach the DB while it is being freed;
+            # the aliased self.db must not be deleted again by DB.close().
+            tmp_txn_db = self.txn_db
+            self.txn_db = NULL
             self.db = NULL
+            with nogil:
+                del tmp_txn_db
+
+            for copts in self.cf_options:
+                if copts:
+                    copts.in_use = False
+            self.cf_options.clear()
 
         # Release options
         if self.opts is not None:
@@ -2671,6 +2825,12 @@ cdef class TransactionDB(DB):
 
 @cython.no_gc_clear
 cdef class Transaction(object):
+    """A RocksDB transaction.
+
+    A transaction and its iterators belong to one thread: do not share them
+    between threads. commit(), rollback(), close() and
+    rollback_to_save_point() invalidate its iterators.
+    """
     # pxd should define:
     # cdef transaction.Transaction* txn
     # cdef object db  # Reference to TransactionDB
@@ -2680,6 +2840,7 @@ cdef class Transaction(object):
         self.txn = NULL
         self.db = None
         self.closed = True
+        self._iterators = set()
 
     def __dealloc__(self):
         # RocksDB's BeginTransaction returns a heap-allocated Transaction*
@@ -2687,14 +2848,24 @@ cdef class Transaction(object):
         # object - we must `del` it explicitly. Without this, every
         # committed/rolled-back transaction leaks its WriteBatch and
         # tracking state.
-        cdef transaction.Transaction* tmp = self.txn
+        # Unregister first, so a concurrent TransactionDB.close() never
+        # reaches a transaction that is being freed.
+        if self.db is not None and self.db._transactions is not None:
+            self.db._transactions.discard(_addr(self))
+        self._release()
+
+    cdef void _release(self):
+        # Iterators point into the transaction: free them first. The GIL is
+        # held throughout, so the parent DB cannot be closed underneath.
+        cdef transaction.Transaction* tmp
+        _invalidate_iterators(self._iterators)
+        tmp = self.txn
         if tmp != NULL:
-            if not self.closed:
-                with nogil:
-                    tmp.Rollback()
-            with nogil:
-                del tmp
             self.txn = NULL
+            if not self.closed:
+                tmp.Rollback()
+            del tmp
+        self.closed = True
 
     cpdef void close(self):
         """Close the transaction by rolling it back."""
@@ -2709,28 +2880,36 @@ cdef class Transaction(object):
             raise RuntimeError("Parent TransactionDB is closed")
 
     cpdef void commit(self):
+        """Commit and free the transaction. Its iterators are invalidated."""
         self._ensure_open()
+        _invalidate_iterators(self._iterators)
         cdef Status st
         cdef transaction.Transaction* tmp = self.txn
+        if tmp == NULL or self.closed:
+            raise RuntimeError("Transaction is closed")
+        self.txn = NULL
+        self.closed = True
         with nogil:
             st = tmp.Commit()
             del tmp
-        self.closed = True
-        self.txn = NULL
         check_status(st)
 
     cpdef void rollback(self):
+        """Roll back and free the transaction. Its iterators are invalidated."""
         if self.closed:
             return  # Idempotent
         if self.txn == NULL:
             return
+        _invalidate_iterators(self._iterators)
         cdef Status st
         cdef transaction.Transaction* tmp = self.txn
+        if tmp == NULL or self.closed:
+            return
+        self.txn = NULL
+        self.closed = True
         with nogil:
             st = tmp.Rollback()
             del tmp
-        self.closed = True
-        self.txn = NULL
         check_status(st)
 
     cpdef void prepare(self):
@@ -2762,6 +2941,11 @@ cdef class Transaction(object):
         self._ensure_open()
         cdef Status st
         st = self.txn.RollbackToSavePoint()
+        # With no save point RocksDB changes nothing and returns NotFound;
+        # otherwise the rebuilt write batch index invalidates the iterators.
+        # Nothing allocates between the call and the invalidation.
+        if st.ok():
+            _invalidate_iterators(self._iterators)
         check_status(st)
 
     cpdef void pop_save_point(self):
@@ -2864,18 +3048,23 @@ cdef class Transaction(object):
         cdef db.ColumnFamilyHandle* cf_handle
         cdef vector[db.ColumnFamilyHandle*] cf_handles
         cdef vector[Slice] c_keys
+        # Read once: iterating keys can run Python code that closes the DB.
+        # The pointer is only used after the re-check below the loop.
+        cdef db.ColumnFamilyHandle* default_cf = self.db.db.DefaultColumnFamily()
         for key in keys:
             if isinstance(key, tuple):
                 py_handle, key = key
                 cf_handle = (<ColumnFamilyHandle?>py_handle).get_handle()
             else:
-                cf_handle = self.db.db.DefaultColumnFamily()
+                cf_handle = default_cf
             c_keys.push_back(bytes_to_slice(key))
             cf_handles.push_back(cf_handle)
 
         cdef options.ReadOptions opts
         cdef vector[Status] res
 
+        # Iterating keys may have run Python code.
+        self._ensure_open()
         res = self.txn.MultiGet(
             opts,
             cf_handles,
@@ -2895,60 +3084,57 @@ cdef class Transaction(object):
     cpdef Iterator iterkeys(self, ColumnFamilyHandle column_family = None):
         self._ensure_open()
         cdef options.ReadOptions opts
-        cdef db.ColumnFamilyHandle* cf_handle
-        cdef iterator.Iterator* it_ptr
-        cdef transaction.Transaction* txn_ptr = self.txn
-        cdef KeysIterator it
-
+        cdef db.ColumnFamilyHandle* cf_handle = NULL
+        # Allocate first: an allocation may run gc, and a finalizer may end
+        # this transaction. Nothing allocates between the check and register.
+        cdef KeysIterator it = KeysIterator(self.db, column_family)
+        it.owner = self
         if column_family is not None:
             cf_handle = column_family.get_handle()
-            it_ptr = transaction.Transaction_GetIterator_CF(txn_ptr, opts, cf_handle)
+        self._ensure_open()
+        if cf_handle != NULL:
+            it.ptr = transaction.Transaction_GetIterator_CF(self.txn, opts, cf_handle)
         else:
-            it_ptr = transaction.Transaction_GetIterator(txn_ptr, opts)
-
-        it = KeysIterator(self.db, column_family)
-        it.owner = self
-        it.ptr = it_ptr
+            it.ptr = transaction.Transaction_GetIterator(self.txn, opts)
+        self._iterators.add(_addr(it))
         return it
 
     cpdef Iterator itervalues(self, ColumnFamilyHandle column_family = None):
         self._ensure_open()
         cdef options.ReadOptions opts
-        cdef db.ColumnFamilyHandle* cf_handle
-        cdef iterator.Iterator* it_ptr
-        cdef transaction.Transaction* txn_ptr = self.txn
-        cdef ValuesIterator it
-
+        cdef db.ColumnFamilyHandle* cf_handle = NULL
+        # Allocate first: an allocation may run gc, and a finalizer may end
+        # this transaction. Nothing allocates between the check and register.
+        cdef ValuesIterator it = ValuesIterator(self.db, column_family)
+        it.owner = self
         if column_family is not None:
             cf_handle = column_family.get_handle()
-            it_ptr = transaction.Transaction_GetIterator_CF(txn_ptr, opts, cf_handle)
+        self._ensure_open()
+        if cf_handle != NULL:
+            it.ptr = transaction.Transaction_GetIterator_CF(self.txn, opts, cf_handle)
         else:
-            it_ptr = transaction.Transaction_GetIterator(txn_ptr, opts)
-
-        it = ValuesIterator(self.db, column_family)
-        it.owner = self
-        it.ptr = it_ptr
+            it.ptr = transaction.Transaction_GetIterator(self.txn, opts)
+        self._iterators.add(_addr(it))
         return it
 
     cpdef Iterator iteritems(self, ColumnFamilyHandle column_family = None):
         self._ensure_open()
         cdef options.ReadOptions opts
-        cdef db.ColumnFamilyHandle* cf_handle
-        cdef iterator.Iterator* it_ptr
-        cdef transaction.Transaction* txn_ptr = self.txn
-        cdef ItemsIterator it
-
-        if column_family is not None:
-            cf_handle = column_family.get_handle()
-            it_ptr = transaction.Transaction_GetIterator_CF(txn_ptr, opts, cf_handle)
-        else:
-            it_ptr = transaction.Transaction_GetIterator(txn_ptr, opts)
-
-        it = ItemsIterator.__new__(ItemsIterator)
+        cdef db.ColumnFamilyHandle* cf_handle = NULL
+        # Allocate first: an allocation may run gc, and a finalizer may end
+        # this transaction. Nothing allocates between the check and register.
+        cdef ItemsIterator it = ItemsIterator.__new__(ItemsIterator)
         it.db = self.db
         it.handle = column_family
         it.owner = self
-        it.ptr = it_ptr
+        if column_family is not None:
+            cf_handle = column_family.get_handle()
+        self._ensure_open()
+        if cf_handle != NULL:
+            it.ptr = transaction.Transaction_GetIterator_CF(self.txn, opts, cf_handle)
+        else:
+            it.ptr = transaction.Transaction_GetIterator(self.txn, opts)
+        self._iterators.add(_addr(it))
         return it
 
     cpdef void disable_indexing(self):
@@ -3003,16 +3189,22 @@ cdef class Snapshot(object):
     # cdef const snapshot.Snapshot* ptr
     # cdef DB db
 
-    def __cinit__(self, DB db):
+    def __cinit__(self, DB db not None):
+        db._check_open()
         self.db = db
         self.ptr = NULL
         with nogil:
             self.ptr = db.db.GetSnapshot()
+        db._snapshots.add(_addr(self))
 
     def __dealloc__(self):
-        if not self.ptr == NULL:
-            with nogil:
-                self.db.db.ReleaseSnapshot(self.ptr)
+        # Release with the GIL held, so the DB cannot be closed underneath,
+        # then unregister (the release itself cannot fail).
+        if self.ptr != NULL:
+            self.db.db.ReleaseSnapshot(self.ptr)
+            self.ptr = NULL
+        if self.db is not None and self.db._snapshots is not None:
+            self.db._snapshots.discard(_addr(self))
 
 
 cdef class Iterator:
@@ -3045,6 +3237,7 @@ cdef class Iterator:
         self._current_value = None
 
 
+@cython.no_gc_clear
 cdef class BaseIterator(Iterator):
     # pxd defines:
     # cdef iterator.Iterator* ptr
@@ -3058,20 +3251,44 @@ cdef class BaseIterator(Iterator):
         self.owner = db
 
     def __dealloc__(self):
-        if not self.ptr == NULL:
+        # Free the native iterator first (the parent is alive: we hold it),
+        # then unregister; nothing in between can run Python code.
+        if self.ptr != NULL:
             del self.ptr
+            self.ptr = NULL
+        if isinstance(self.owner, Transaction):
+            if (<Transaction>self.owner)._iterators is not None:
+                (<Transaction>self.owner)._iterators.discard(_addr(self))
+        elif isinstance(self.owner, DB):
+            if (<DB>self.owner)._iterators is not None:
+                (<DB>self.owner)._iterators.discard(_addr(self))
+
+    cdef int _check_valid(self) except -1:
+        if self.ptr == NULL:
+            raise RuntimeError("Iterator is invalid: its transaction ended or its DB was closed")
+        return 0
+
+    cdef void _invalidate(self):
+        if self.ptr != NULL:
+            del self.ptr
+            self.ptr = NULL
 
     cpdef object next(self):
+        self._check_valid()
         if not self.ptr.Valid():
             return None
 
         cdef object ret = self.get_ob()
+        # Building ret may have run gc, and a finalizer may have ended our
+        # transaction.
+        self._check_valid()
         with nogil:
             self.ptr.Next()
         check_status(self.ptr.status())
         return ret
 
     cpdef object get(self):
+        self._check_valid()
         if not self.ptr.Valid():
             raise ValueError()
 
@@ -3079,6 +3296,7 @@ cdef class BaseIterator(Iterator):
         return ret
 
     cpdef void skip(self):
+        self._check_valid()
         if not self.ptr.Valid():
             raise ValueError()
         with nogil:
@@ -3086,6 +3304,7 @@ cdef class BaseIterator(Iterator):
         check_status(self.ptr.status())
 
     cpdef void skip_back(self):
+        self._check_valid()
         if not self.ptr.Valid():
             raise ValueError()
         with nogil:
@@ -3096,22 +3315,26 @@ cdef class BaseIterator(Iterator):
         return ReversedIterator(self)
 
     cpdef void seek_to_first(self):
+        self._check_valid()
         with nogil:
             self.ptr.SeekToFirst()
         check_status(self.ptr.status())
 
     cpdef void seek_to_last(self):
+        self._check_valid()
         with nogil:
             self.ptr.SeekToLast()
         check_status(self.ptr.status())
 
     cpdef void seek(self, bytes key):
+        self._check_valid()
         cdef Slice c_key = bytes_to_slice(key)
         with nogil:
             self.ptr.Seek(c_key)
         check_status(self.ptr.status())
 
     cpdef void seek_for_prev(self, bytes key):
+        self._check_valid()
         cdef Slice c_key = bytes_to_slice(key)
         with nogil:
             self.ptr.SeekForPrev(c_key)
@@ -3154,7 +3377,7 @@ cdef class ReversedIterator(object):
     # pxd defines:
     # cdef BaseIterator it
 
-    def __cinit__(self, BaseIterator it):
+    def __cinit__(self, BaseIterator it not None):
         self.it = it
 
     cpdef void seek_to_first(self):
@@ -3179,10 +3402,14 @@ cdef class ReversedIterator(object):
         return self.it
 
     def __next__(self):
+        self.it._check_valid()
         if not self.it.ptr.Valid():
             raise StopIteration()
 
         cdef object ret = self.it.get_ob()
+        # Building ret may have run gc, and a finalizer may have ended our
+        # transaction.
+        self.it._check_valid()
         with nogil:
             self.it.ptr.Prev()
         check_status(self.it.ptr.status())
@@ -3212,10 +3439,13 @@ cdef class BackupEngine(object):
                 del self.engine
 
     cpdef create_backup(self, DB db, flush_before_backup=False):
+        if db is None:
+            raise TypeError("db must be a DB, not None")
         cdef Status st
         cdef cpp_bool c_flush_before_backup
 
         c_flush_before_backup = flush_before_backup
+        db._check_open()
 
         with nogil:
             st = self.engine.CreateNewBackup(db.db, c_flush_before_backup)

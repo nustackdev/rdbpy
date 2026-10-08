@@ -113,7 +113,7 @@ cdef extern from "rocksdb/db.h" namespace "rocksdb":
             const options.ReadOptions&,
             ColumnFamilyHandle*) nogil except+
 
-        void NewIterators(
+        Status NewIterators(
             const options.ReadOptions&,
             vector[ColumnFamilyHandle*]&,
             vector[Iterator*]*) nogil except+

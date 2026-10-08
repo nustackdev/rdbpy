@@ -622,6 +622,13 @@ cdef class DB(IDB):
     cdef db.DB* db
     cdef list cf_handles
     cdef list cf_options
+    cdef set _iterators
+    cdef set _snapshots
+    # Used by TransactionDB, declared here so it is still set when
+    # DB.__dealloc__ calls TransactionDB.close() after TransactionDB's own
+    # fields were cleared.
+    cdef set _transactions
+    cdef int _check_open(self) except -1
     # def __cinit__(self, db_name, Options opts, dict column_families = *, read_only=False)
     # def __dealloc__(self)
     cpdef void close(self)
@@ -668,10 +675,14 @@ cdef class TransactionDB(DB):
     cpdef void close(self)
 
 
+@cython.no_gc_clear
 cdef class Transaction(object):
     cdef transaction.Transaction* txn
     cdef TransactionDB db
     cdef bint closed
+    cdef set _iterators
+
+    cdef void _release(self)
 
     cdef void _ensure_open(self)
     cpdef void close(self)
@@ -717,11 +728,15 @@ cdef class Iterator:
     cpdef void skip_back(self)
 
 
+@cython.no_gc_clear
 cdef class BaseIterator(Iterator):
     cdef iterator.Iterator* ptr
     cdef DB db
     cdef ColumnFamilyHandle handle
     cdef object owner
+
+    cdef int _check_valid(self) except -1
+    cdef void _invalidate(self)
 
     # def __cinit__(self, DB db, ColumnFamilyHandle handle = None)
     # def __dealloc__(self)
