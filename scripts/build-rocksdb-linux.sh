@@ -142,6 +142,7 @@ tar xzf "rocksdb-${ROCKSDB_VERSION}.tar.gz"
 cd "rocksdb-${ROCKSDB_VERSION}"
 
 # Apply patch to fix missing <cstdint> include for newer GCC versions
+# (GCC 13+ needs it in more headers; the build also force-includes it below)
 echo "Applying cstdint patch..."
 SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")"
 if [ -f "$SCRIPT_DIR/rocksdb-cstdint.patch" ]; then
@@ -160,7 +161,7 @@ make static_lib shared_lib -j$(nproc) \
     USE_RTTI=1 \
     DISABLE_WARNING_AS_ERROR=1 \
     DEBUG_LEVEL=0 \
-    EXTRA_CXXFLAGS="$CXXFLAGS" \
+    EXTRA_CXXFLAGS="$CXXFLAGS -include cstdint" \
     EXTRA_LDFLAGS="$LDFLAGS"
 
 # Install
