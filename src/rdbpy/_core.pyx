@@ -1079,8 +1079,10 @@ cdef class DB:
 
     def multi_get(self, keys, *, snapshot=None):
         """Values for keys (list, None for missing) at `snapshot` or latest."""
-        self._check()
+        # Materialise first: iterating `keys` may run Python code (and let
+        # another thread close the DB), so the closed check comes after.
         cdef list key_list = [k for k in keys]
+        self._check()
         cdef r.ReadOptions ro
         cdef vector[r.Slice] ks
         cdef vector[string] vs
