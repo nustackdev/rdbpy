@@ -22,6 +22,7 @@ cdef extern from "rocksdb/slice.h" namespace "rocksdb":
         Slice(const string&) nogil
         const char* data() nogil
         size_t size() nogil
+        int compare(const Slice&) nogil
         string ToString() nogil
 
 

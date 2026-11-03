@@ -61,6 +61,17 @@ cdef inline cpp_bool _is_not_found(const r.Status& st) nogil:
     return r.status_code(st) == 1
 
 
+# In-flight native calls per DB. Taken with the GIL held around every
+# `with nogil` block that touches the DB or its children, so close() can
+# refuse instead of freeing state another thread is still inside.
+cdef inline void _busy(DB db) noexcept:
+    db._inflight += 1
+
+
+cdef inline void _idle(DB db) noexcept:
+    db._inflight -= 1
+
+
 _COMPRESSION = {
     "none": r.kNoCompression,
     "snappy": r.kSnappyCompression,
@@ -531,8 +542,10 @@ cdef class Snapshot:
         if self.registry is not None:
             self.registry.discard(_addr(self))
         if self.owned and self.db is not None and self.db.db != NULL:
+            _busy(self.db)
             with nogil:
                 self.db.db.ReleaseSnapshot(p)
+            _idle(self.db)
 
     cdef void _invalidate(self):
         # Called by the owner that is about to free the native snapshot.
@@ -588,8 +601,10 @@ cdef class Iterator:
     it`, or keys when keys_only) and next_batch(n), both walk in the direction
     given by `reverse` and position themselves on first use.
 
-    Bounds (lower inclusive, upper exclusive) and prefix are applied by RocksDB
-    itself, so seeks never leave the window.
+    Bounds (lower inclusive, upper exclusive) and prefix are passed to RocksDB
+    and also enforced here: a transaction iterator's own pending writes are
+    not bounded by RocksDB 6.29, so seeks are clamped into the window and a
+    key outside it reads as invalid.
     """
     cdef r.Iterator* it
     cdef r.ReadOptions ro
@@ -597,6 +612,8 @@ cdef class Iterator:
     cdef r.Slice upper_s
     cdef bytes lower
     cdef bytes upper
+    cdef bint has_lower
+    cdef bint has_upper
     cdef DB db
     cdef set registry
     cdef bint reverse
@@ -607,6 +624,8 @@ cdef class Iterator:
         self.it = NULL
         self.registry = None
         self.positioned = False
+        self.has_lower = False
+        self.has_upper = False
 
     def __dealloc__(self):
         self._free()
@@ -618,7 +637,10 @@ cdef class Iterator:
         self.it = NULL
         if self.registry is not None:
             self.registry.discard(_addr(self))
-        del p
+        # An iterator's destructor may drop the last SuperVersion ref and
+        # purge obsolete files, so it runs without the GIL.
+        with nogil:
+            del p
 
     cdef void _invalidate(self):
         # Called by the parent, which already popped us from its registry.
@@ -626,7 +648,8 @@ cdef class Iterator:
         if p == NULL:
             return
         self.it = NULL
-        del p
+        with nogil:
+            del p
 
     cdef void _setup(self, DB db, set registry, const r.Snapshot* snap, lower, upper, prefix,
                      bint reverse, bint keys_only, bint fill_cache) except *:
@@ -646,21 +669,63 @@ cdef class Iterator:
             self.lower = lower
             self.lower_s = _slice(self.lower)
             self.ro.iterate_lower_bound = &self.lower_s
+            self.has_lower = True
         if upper is not None:
             self.upper = upper
             self.upper_s = _slice(self.upper)
             self.ro.iterate_upper_bound = &self.upper_s
+            self.has_upper = True
 
     cdef inline int _check(self) except -1:
-        if self.it == NULL:
+        if self.it == NULL or self.db.db == NULL:
             raise RuntimeError("iterator is closed or its parent has ended")
         return 0
 
     cdef inline int _status(self) except -1:
         cdef r.Status st
-        with nogil:
-            st = self.it.status()
+        _busy(self.db)
+        try:
+            with nogil:
+                st = self.it.status()
+        finally:
+            _idle(self.db)
         return _check(st)
+
+    # --- window-aware native moves (no GIL) ---
+    cdef inline cpp_bool _valid(self) noexcept nogil:
+        if not self.it.Valid():
+            return False
+        if self.has_upper and self.it.key().compare(self.upper_s) >= 0:
+            return False
+        if self.has_lower and self.it.key().compare(self.lower_s) < 0:
+            return False
+        return True
+
+    cdef inline void _seek(self, const r.Slice& k) noexcept nogil:
+        if self.has_lower and k.compare(self.lower_s) < 0:
+            self.it.Seek(self.lower_s)
+        else:
+            self.it.Seek(k)
+
+    cdef inline void _seek_first(self) noexcept nogil:
+        if self.has_lower:
+            self.it.Seek(self.lower_s)
+        else:
+            self.it.SeekToFirst()
+
+    cdef inline void _seek_last(self) noexcept nogil:
+        if self.has_upper:
+            self.it.SeekForPrev(self.upper_s)
+            while self.it.Valid() and self.it.key().compare(self.upper_s) >= 0:
+                self.it.Prev()
+        else:
+            self.it.SeekToLast()
+
+    cdef inline void _seek_for_prev(self, const r.Slice& k) noexcept nogil:
+        if self.has_upper and k.compare(self.upper_s) >= 0:
+            self._seek_last()
+        else:
+            self.it.SeekForPrev(k)
 
     def close(self):
         self._free()
@@ -680,65 +745,89 @@ cdef class Iterator:
     def seek(self, bytes key not None):
         self._check()
         cdef r.Slice k = _slice(key)
-        with nogil:
-            self.it.Seek(k)
+        _busy(self.db)
+        try:
+            with nogil:
+                self._seek(k)
+        finally:
+            _idle(self.db)
         self.positioned = True
         return self._status()
 
     def seek_for_prev(self, bytes key not None):
         self._check()
         cdef r.Slice k = _slice(key)
-        with nogil:
-            self.it.SeekForPrev(k)
+        _busy(self.db)
+        try:
+            with nogil:
+                self._seek_for_prev(k)
+        finally:
+            _idle(self.db)
         self.positioned = True
         return self._status()
 
     def seek_to_first(self):
         self._check()
-        with nogil:
-            self.it.SeekToFirst()
+        _busy(self.db)
+        try:
+            with nogil:
+                self._seek_first()
+        finally:
+            _idle(self.db)
         self.positioned = True
         return self._status()
 
     def seek_to_last(self):
         self._check()
-        with nogil:
-            self.it.SeekToLast()
+        _busy(self.db)
+        try:
+            with nogil:
+                self._seek_last()
+        finally:
+            _idle(self.db)
         self.positioned = True
         return self._status()
 
     def valid(self):
         self._check()
-        return self.it.Valid()
+        return self._valid()
 
     def key(self):
         self._check()
-        if not self.it.Valid():
+        if not self._valid():
             raise RuntimeError("iterator is not valid")
         return _bytes(self.it.key())
 
     def value(self):
         self._check()
-        if not self.it.Valid():
+        if not self._valid():
             raise RuntimeError("iterator is not valid")
         return _bytes(self.it.value())
 
     def item(self):
         self._check()
-        if not self.it.Valid():
+        if not self._valid():
             raise RuntimeError("iterator is not valid")
         return (_bytes(self.it.key()), _bytes(self.it.value()))
 
     def next(self):
         self._check()
-        with nogil:
-            self.it.Next()
+        _busy(self.db)
+        try:
+            with nogil:
+                self.it.Next()
+        finally:
+            _idle(self.db)
         return self._status()
 
     def prev(self):
         self._check()
-        with nogil:
-            self.it.Prev()
+        _busy(self.db)
+        try:
+            with nogil:
+                self.it.Prev()
+        finally:
+            _idle(self.db)
         return self._status()
 
     def status(self):
@@ -750,9 +839,9 @@ cdef class Iterator:
     cdef inline void _ensure_positioned(self) noexcept nogil:
         if not self.positioned:
             if self.reverse:
-                self.it.SeekToLast()
+                self._seek_last()
             else:
-                self.it.SeekToFirst()
+                self._seek_first()
             self.positioned = True
 
     def __iter__(self):
@@ -761,20 +850,28 @@ cdef class Iterator:
     def __next__(self):
         self._check()
         cdef object out
-        with nogil:
-            self._ensure_positioned()
-        if not self.it.Valid():
+        _busy(self.db)
+        try:
+            with nogil:
+                self._ensure_positioned()
+        finally:
+            _idle(self.db)
+        if not self._valid():
             self._status()
             raise StopIteration
         if self.keys_only:
             out = _bytes(self.it.key())
         else:
             out = (_bytes(self.it.key()), _bytes(self.it.value()))
-        with nogil:
-            if self.reverse:
-                self.it.Prev()
-            else:
-                self.it.Next()
+        _busy(self.db)
+        try:
+            with nogil:
+                if self.reverse:
+                    self.it.Prev()
+                else:
+                    self.it.Next()
+        finally:
+            _idle(self.db)
         return out
 
     def next_batch(self, Py_ssize_t n=1000):
@@ -791,20 +888,24 @@ cdef class Iterator:
         cdef bint keys_only = self.keys_only
         cdef bint reverse = self.reverse
         cdef r.Iterator* it = self.it
-        with nogil:
-            self._ensure_positioned()
-            ks.reserve(<size_t>n)
-            if not keys_only:
-                vs.reserve(<size_t>n)
-            while left > 0 and it.Valid():
-                ks.push_back(it.key().ToString())
+        _busy(self.db)
+        try:
+            with nogil:
+                self._ensure_positioned()
+                ks.reserve(<size_t>n)
                 if not keys_only:
-                    vs.push_back(it.value().ToString())
-                if reverse:
-                    it.Prev()
-                else:
-                    it.Next()
-                left -= 1
+                    vs.reserve(<size_t>n)
+                while left > 0 and self._valid():
+                    ks.push_back(it.key().ToString())
+                    if not keys_only:
+                        vs.push_back(it.value().ToString())
+                    if reverse:
+                        it.Prev()
+                    else:
+                        it.Next()
+                    left -= 1
+        finally:
+            _idle(self.db)
         if ks.empty():
             self._status()
             return []
@@ -829,6 +930,22 @@ cdef void _invalidate_iterators(set registry):
     while registry:
         it = <Iterator><void*><size_t>registry.pop()
         it._invalidate()
+
+
+cdef void _release_snapshots(set registry, r.DB* db):
+    # DB close: owned snapshots must be released before the DB is deleted,
+    # rocksdb does not free them itself.
+    cdef Snapshot snap
+    cdef const r.Snapshot* p
+    if registry is None:
+        return
+    while registry:
+        snap = <Snapshot><void*><size_t>registry.pop()
+        p = snap.ptr
+        snap._invalidate()
+        if p != NULL and snap.owned:
+            with nogil:
+                db.ReleaseSnapshot(p)
 
 
 cdef void _invalidate_snapshots(set registry):
@@ -857,6 +974,7 @@ cdef class DB:
     cdef set _iters
     cdef set _snaps
     cdef set _txns
+    cdef int _inflight
     cdef readonly str path
     cdef readonly Options options
 
@@ -865,6 +983,7 @@ cdef class DB:
         self._iters = set()
         self._snaps = set()
         self._txns = set()
+        self._inflight = 0
 
     def __init__(self, path, Options options=None, *, bint read_only=False, secondary_path=None):
         cdef r.DB* db = NULL
@@ -897,13 +1016,15 @@ cdef class DB:
         cdef Transaction txn
         if self.db == NULL:
             return
+        # Detach first: from here every call on the DB or its children raises,
+        # even while the steps below release the GIL.
+        p = self.db
+        self.db = NULL
         _invalidate_iterators(self._iters)
-        _invalidate_snapshots(self._snaps)
+        _release_snapshots(self._snaps, p)
         while self._txns:
             txn = <Transaction><void*><size_t>self._txns.pop()
             txn._end(True)
-        p = self.db
-        self.db = NULL
         with nogil:
             del p
 
@@ -913,7 +1034,13 @@ cdef class DB:
         return 0
 
     def close(self):
-        """Free every iterator, snapshot and transaction, then the DB."""
+        """Free every iterator, snapshot and transaction, then the DB.
+
+        Raises RuntimeError while another thread is inside a call on this DB
+        or one of its children (freeing it then would be a use after free).
+        """
+        if self._inflight:
+            raise RuntimeError("DB is in use by another thread")
         self._close()
 
     @property
@@ -924,7 +1051,7 @@ cdef class DB:
         return self
 
     def __exit__(self, *exc):
-        self._close()
+        self.close()
         return False
 
     def __repr__(self):
@@ -939,8 +1066,12 @@ cdef class DB:
         cdef string value
         cdef r.Status st
         ro.snapshot = _snap_ptr(snapshot, self)
-        with nogil:
-            st = r.db_get(self.db, ro, k, &value)
+        _busy(self)
+        try:
+            with nogil:
+                st = r.db_get(self.db, ro, k, &value)
+        finally:
+            _idle(self)
         if _is_not_found(st):
             return None
         _check(st)
@@ -961,8 +1092,12 @@ cdef class DB:
             if not isinstance(k, bytes):
                 raise TypeError("keys must be bytes")
             ks.push_back(_slice(<bytes>k))
-        with nogil:
-            sts = self.db.MultiGet(ro, ks, &vs)
+        _busy(self)
+        try:
+            with nogil:
+                sts = self.db.MultiGet(ro, ks, &vs)
+        finally:
+            _idle(self)
         cdef list out = [None] * <Py_ssize_t>n
         for i in range(n):
             if _is_not_found(sts[i]):
@@ -976,8 +1111,12 @@ cdef class DB:
         self._check()
         cdef Snapshot snap = Snapshot.__new__(Snapshot)
         cdef const r.Snapshot* p
-        with nogil:
-            p = self.db.GetSnapshot()
+        _busy(self)
+        try:
+            with nogil:
+                p = self.db.GetSnapshot()
+        finally:
+            _idle(self)
         snap.ptr = p
         snap.db = self
         snap.owned = True
@@ -993,8 +1132,12 @@ cdef class DB:
         cdef r.Iterator* p
         it._setup(self, self._iters, _snap_ptr(snapshot, self), lower, upper, prefix,
                   reverse, keys_only, fill_cache)
-        with nogil:
-            p = self.db.NewIterator(it.ro)
+        _busy(self)
+        try:
+            with nogil:
+                p = self.db.NewIterator(it.ro)
+        finally:
+            _idle(self)
         it.it = p
         self._iters.add(_addr(it))
         return it
@@ -1022,8 +1165,12 @@ cdef class DB:
         cdef r.Status st
         wo.sync = sync
         wo.disableWAL = disable_wal
-        with nogil:
-            st = self.db.Put(wo, k, v)
+        _busy(self)
+        try:
+            with nogil:
+                st = self.db.Put(wo, k, v)
+        finally:
+            _idle(self)
         _check(st)
 
     def delete(self, bytes key not None, *, bint sync=False, bint disable_wal=False):
@@ -1033,8 +1180,12 @@ cdef class DB:
         cdef r.Status st
         wo.sync = sync
         wo.disableWAL = disable_wal
-        with nogil:
-            st = self.db.Delete(wo, k)
+        _busy(self)
+        try:
+            with nogil:
+                st = self.db.Delete(wo, k)
+        finally:
+            _idle(self)
         _check(st)
 
     def write(self, WriteBatch batch not None, *, bint sync=False, bint disable_wal=False):
@@ -1044,8 +1195,12 @@ cdef class DB:
         cdef r.Status st
         wo.sync = sync
         wo.disableWAL = disable_wal
-        with nogil:
-            st = self.db.Write(wo, batch.batch)
+        _busy(self)
+        try:
+            with nogil:
+                st = self.db.Write(wo, batch.batch)
+        finally:
+            _idle(self)
         _check(st)
 
     # --- maintenance ---
@@ -1054,15 +1209,23 @@ cdef class DB:
         cdef r.FlushOptions fo
         cdef r.Status st
         fo.wait = wait
-        with nogil:
-            st = self.db.Flush(fo)
+        _busy(self)
+        try:
+            with nogil:
+                st = self.db.Flush(fo)
+        finally:
+            _idle(self)
         _check(st)
 
     def flush_wal(self, *, bint sync=False):
         self._check()
         cdef r.Status st
-        with nogil:
-            st = self.db.FlushWAL(sync)
+        _busy(self)
+        try:
+            with nogil:
+                st = self.db.FlushWAL(sync)
+        finally:
+            _idle(self)
         _check(st)
 
     def compact_range(self, bytes begin=None, bytes end=None):
@@ -1078,16 +1241,24 @@ cdef class DB:
         if end is not None:
             e = _slice(end)
             ep = &e
-        with nogil:
-            st = self.db.CompactRange(co, bp, ep)
+        _busy(self)
+        try:
+            with nogil:
+                st = self.db.CompactRange(co, bp, ep)
+        finally:
+            _idle(self)
         _check(st)
 
     def try_catch_up_with_primary(self):
         """Secondary instances: pull the primary's latest state."""
         self._check()
         cdef r.Status st
-        with nogil:
-            st = self.db.TryCatchUpWithPrimary()
+        _busy(self)
+        try:
+            with nogil:
+                st = self.db.TryCatchUpWithPrimary()
+        finally:
+            _idle(self)
         _check(st)
 
 
@@ -1124,6 +1295,7 @@ cdef class Transaction:
         # Free native state; rollback first when asked. Never raises.
         cdef r.Transaction* p = self.txn
         cdef r.Status st
+        cdef DB db = self.db
         if p == NULL:
             return
         _invalidate_iterators(self._iters)
@@ -1131,14 +1303,20 @@ cdef class Transaction:
         self.txn = NULL
         if self.db is not None and self.db._txns is not None:
             self.db._txns.discard(_addr(self))
+        if db is not None:
+            _busy(db)
         with nogil:
             if rollback:
                 st = p.Rollback()
             del p
+        if db is not None:
+            _idle(db)
 
     cdef inline int _check(self) except -1:
         if self.txn == NULL:
             raise RuntimeError("transaction has ended")
+        if self.db.db == NULL:
+            raise RuntimeError("DB is closed")
         return 0
 
     cdef const r.Snapshot* _read_snapshot(self, object snapshot) except? NULL:
@@ -1176,14 +1354,22 @@ cdef class Transaction:
         """Pin reads and conflict checks to the current state."""
         self._check()
         _invalidate_snapshots(self._snaps)
-        with nogil:
-            self.txn.SetSnapshot()
+        _busy(self.db)
+        try:
+            with nogil:
+                self.txn.SetSnapshot()
+        finally:
+            _idle(self.db)
 
     def clear_snapshot(self):
         self._check()
         _invalidate_snapshots(self._snaps)
-        with nogil:
-            self.txn.ClearSnapshot()
+        _busy(self.db)
+        try:
+            with nogil:
+                self.txn.ClearSnapshot()
+        finally:
+            _idle(self.db)
 
     @property
     def snapshot(self):
@@ -1209,8 +1395,12 @@ cdef class Transaction:
         cdef string value
         cdef r.Status st
         ro.snapshot = self._read_snapshot(snapshot)
-        with nogil:
-            st = r.txn_get(self.txn, ro, k, &value)
+        _busy(self.db)
+        try:
+            with nogil:
+                st = r.txn_get(self.txn, ro, k, &value)
+        finally:
+            _idle(self.db)
         if _is_not_found(st):
             return None
         _check(st)
@@ -1232,8 +1422,12 @@ cdef class Transaction:
         cdef string value
         cdef r.Status st
         ro.snapshot = self._read_snapshot(snapshot) if validate else NULL
-        with nogil:
-            st = r.txn_get_for_update(self.txn, ro, k, &value, exclusive, validate)
+        _busy(self.db)
+        try:
+            with nogil:
+                st = r.txn_get_for_update(self.txn, ro, k, &value, exclusive, validate)
+        finally:
+            _idle(self.db)
         if _is_not_found(st):
             return None
         _check(st)
@@ -1247,8 +1441,12 @@ cdef class Transaction:
         cdef r.Iterator* p
         it._setup(self.db, self._iters, self._read_snapshot(snapshot), lower, upper, prefix,
                   reverse, keys_only, fill_cache)
-        with nogil:
-            p = r.txn_iterator(self.txn, it.ro)
+        _busy(self.db)
+        try:
+            with nogil:
+                p = r.txn_iterator(self.txn, it.ro)
+        finally:
+            _idle(self.db)
         it.it = p
         self._iters.add(_addr(it))
         return it
@@ -1260,24 +1458,36 @@ cdef class Transaction:
         cdef r.Slice k = _slice(key)
         cdef r.Slice v = _slice(value)
         cdef r.Status st
-        with nogil:
-            st = self.txn.Put(k, v)
+        _busy(self.db)
+        try:
+            with nogil:
+                st = self.txn.Put(k, v)
+        finally:
+            _idle(self.db)
         _check(st)
 
     def delete(self, bytes key not None):
         self._check()
         cdef r.Slice k = _slice(key)
         cdef r.Status st
-        with nogil:
-            st = self.txn.Delete(k)
+        _busy(self.db)
+        try:
+            with nogil:
+                st = self.txn.Delete(k)
+        finally:
+            _idle(self.db)
         _check(st)
 
     def single_delete(self, bytes key not None):
         self._check()
         cdef r.Slice k = _slice(key)
         cdef r.Status st
-        with nogil:
-            st = self.txn.SingleDelete(k)
+        _busy(self.db)
+        try:
+            with nogil:
+                st = self.txn.SingleDelete(k)
+        finally:
+            _idle(self.db)
         _check(st)
 
     # --- end ---
@@ -1288,8 +1498,12 @@ cdef class Transaction:
         cdef r.Status st
         _invalidate_iterators(self._iters)
         _invalidate_snapshots(self._snaps)
-        with nogil:
-            st = p.Commit()
+        _busy(self.db)
+        try:
+            with nogil:
+                st = p.Commit()
+        finally:
+            _idle(self.db)
         if st.ok():
             self._committed = True
             self._end(False)
@@ -1369,8 +1583,12 @@ cdef class TransactionDB(DB):
             to.deadlock_detect_depth = <int64_t>deadlock_detect_depth
         if expiration_ms is not None:
             to.expiration = <int64_t>expiration_ms
-        with nogil:
-            p = (<r.TransactionDB*>self.db).BeginTransaction(wo, to)
+        _busy(self)
+        try:
+            with nogil:
+                p = (<r.TransactionDB*>self.db).BeginTransaction(wo, to)
+        finally:
+            _idle(self)
         return _wrap_txn(self, p, False)
 
 
@@ -1413,8 +1631,12 @@ cdef class OptimisticTransactionDB(DB):
         wo.sync = sync
         wo.disableWAL = disable_wal
         to.set_snapshot = set_snapshot
-        with nogil:
-            p = (<r.OptimisticTransactionDB*>self.db).BeginTransaction(wo, to)
+        _busy(self)
+        try:
+            with nogil:
+                p = (<r.OptimisticTransactionDB*>self.db).BeginTransaction(wo, to)
+        finally:
+            _idle(self)
         return _wrap_txn(self, p, True)
 
 

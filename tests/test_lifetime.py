@@ -273,3 +273,29 @@ def test_snapshot_after_txn_ends_and_db_closes():
         "VIEW True",
         "OWNED True",
     )
+
+
+
+def test_close_refused_while_another_thread_is_inside_a_call():
+    # Closing would free the txn another thread is blocked in (a crash before).
+    run(
+        """
+        import time
+        db = rdbpy.TransactionDB(path(), lock_timeout_ms=2000)
+        holder = db.begin()
+        holder.put(b"k", b"1")
+        waiter = db.begin()
+        out = []
+        th = threading.Thread(target=lambda: out.append(waiter.get_for_update(b"k")))
+        th.start()
+        time.sleep(0.2)
+        raises(db.close)
+        holder.rollback()
+        th.join()
+        print("GOT", out)
+        db.close()
+        raises(lambda: waiter.get(b"k"))
+        """,
+        "RAISED RuntimeError",
+        "GOT [None]",
+    )

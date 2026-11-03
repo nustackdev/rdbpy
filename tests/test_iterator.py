@@ -247,3 +247,32 @@ def test_db_close_invalidates_iterators(path):
     assert it.closed
     with pytest.raises(RuntimeError):
         list(it)
+
+
+@pytest.mark.parametrize("which", ["tdb", "odb"])
+def test_txn_iterator_bounds_cover_own_writes(request, which):
+    # RocksDB 6.29 does not bound a transaction's pending writes; rdbpy does.
+    d = request.getfixturevalue(which)
+    for k in (b"b", b"d", b"f"):
+        d.put(k, b"db")
+    txn = d.begin()
+    for k in (b"a", b"c", b"e", b"g"):
+        txn.put(k, b"own")
+    assert keys(txn.iterator(lower=b"c", upper=b"e")) == [b"c", b"d"]
+    assert keys(txn.iterator(lower=b"c", upper=b"e", reverse=True)) == [b"d", b"c"]
+    assert keys(txn.iterator(lower=b"c")) == [b"c", b"d", b"e", b"f", b"g"]
+    assert keys(txn.iterator(lower=b"c", reverse=True)) == [b"g", b"f", b"e", b"d", b"c"]
+    assert keys(txn.iterator(upper=b"e", reverse=True)) == [b"d", b"c", b"b", b"a"]
+    assert list(txn.iterator(prefix=b"c", keys_only=True)) == [b"c"]
+    assert txn.iterator(lower=b"c", upper=b"e").next_batch(10) == [(b"c", b"own"), (b"d", b"db")]
+    it = txn.iterator(lower=b"c", upper=b"e")
+    it.seek(b"a")
+    assert it.key() == b"c"
+    it.seek_for_prev(b"z")
+    assert it.key() == b"d"
+    it.next()
+    assert not it.valid()
+    it.seek_to_first()
+    it.prev()
+    assert not it.valid()
+    txn.rollback()
