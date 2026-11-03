@@ -63,8 +63,9 @@ class Aborted(RocksDBError):
     pass
 
 
-class LockLimit(Aborted):
-    """TransactionDBOptions.max_num_locks reached."""
+class LockLimit(RocksDBError):
+    """TransactionDBOptions.max_num_locks reached (rocksdb reports it as Busy
+    or Aborted depending on the path, so it stands on its own)."""
 
 
 class Busy(RocksDBError):
@@ -121,7 +122,7 @@ def error_for(code: int, subcode: int, message: str) -> RocksDBError:
     cls = _BY_CODE.get(code, RocksDBError)
     if code == 11 and subcode == _SUBCODE_DEADLOCK:
         cls = Deadlock
-    elif code == 10 and subcode == _SUBCODE_LOCK_LIMIT:
+    elif code in (10, 11) and subcode == _SUBCODE_LOCK_LIMIT:
         cls = LockLimit
     return cls(message, code, subcode)
 
