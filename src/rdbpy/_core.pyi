@@ -131,6 +131,12 @@ class Options:
     optimize_filters_for_memory: bool
 
 class WriteBatch:
+    """Batched writes applied atomically by DB.write().
+
+    One thread at a time: do not close, release or end it from one thread
+    while another thread is using it.
+    """
+
     def put(self, key: bytes, value: bytes) -> None: ...
     def delete(self, key: bytes) -> None: ...
     def single_delete(self, key: bytes) -> None: ...
@@ -139,6 +145,12 @@ class WriteBatch:
     def __len__(self) -> int: ...
 
 class Snapshot:
+    """Point-in-time read view; release() frees it, DB.close() invalidates it.
+
+    One thread at a time: do not close, release or end it from one thread
+    while another thread is using it.
+    """
+
     def release(self) -> None: ...
     @property
     def released(self) -> bool: ...
@@ -148,6 +160,12 @@ class Snapshot:
     def __exit__(self, *exc: object) -> bool: ...
 
 class Iterator:
+    """Cursor over a DB or transaction; invalidated when its parent ends.
+
+    One thread at a time: do not close, release or end it from one thread
+    while another thread is using it.
+    """
+
     def close(self) -> None: ...
     @property
     def closed(self) -> bool: ...
@@ -179,7 +197,10 @@ class DB:
         read_only: bool = False,
         secondary_path: StrPath | None = None,
     ) -> None: ...
-    def close(self) -> None: ...
+    def close(self) -> None:
+        """Close the DB, invalidating its iterators and snapshots and rolling back
+        open transactions. Raises RuntimeError while another thread is inside a
+        call on this DB."""
     @property
     def closed(self) -> bool: ...
     def __enter__(self) -> DB: ...
@@ -212,6 +233,13 @@ class DB:
     def try_catch_up_with_primary(self) -> None: ...
 
 class Transaction:
+    """A transaction from TransactionDB.begin() or OptimisticTransactionDB.begin().
+
+    One thread at a time: do not close, release or end it from one thread
+    while another thread is using it.
+    commit()/rollback() also invalidate its iterators and snapshot views.
+    """
+
     optimistic: bool
     @property
     def active(self) -> bool: ...
@@ -235,7 +263,12 @@ class Transaction:
         exclusive: bool = True,
         snapshot: Snapshot | None = None,
         validate: bool = True,
-    ) -> bytes | None: ...
+    ) -> bytes | None:
+        """Read and lock (pessimistic) or track (optimistic) the key.
+
+        validate=False reads latest and skips the conflict check; passing
+        snapshot= with it raises ValueError.
+        """
     def iterator(
         self,
         *,
@@ -278,6 +311,13 @@ class TransactionDB(DB):
     ) -> Transaction: ...
 
 class OptimisticTransactionDB(DB):
+    """Optimistic transactions: no locks, conflicts surface at commit as Busy.
+
+    When options leave max_write_buffer_size_to_maintain at 0, memtable history
+    of max_write_buffer_number * write_buffer_size is kept so commits after a
+    flush still validate instead of raising TryAgain.
+    """
+
     def __init__(
         self,
         path: StrPath,

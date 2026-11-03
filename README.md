@@ -72,7 +72,10 @@ and raise `TimedOut` when the wait exceeds `lock_timeout_ms` (per DB or per
 `begin`), `Deadlock` when `deadlock_detect=True` finds a cycle, `Busy` when a
 key changed after the transaction's snapshot. Optimistic
 (`OptimisticTransactionDB`): no locks, `commit()` raises `Busy` when a written
-or tracked key changed.
+or tracked key changed. It keeps memtable history by default
+(`max_write_buffer_size_to_maintain=0` becomes `-1`), so a commit after a flush
+does not fail with `TryAgain`. `get_for_update(validate=False)` reads latest and
+skips the check; combining it with `snapshot=` raises `ValueError`.
 
 ### Errors
 
@@ -96,10 +99,14 @@ parent:
   any order, including when gc frees it.
 
 Threads: rdbpy does no locking of its own and releases the GIL inside RocksDB
-calls, so several threads can read and write concurrently (RocksDB is thread
-safe), but a transaction and its iterators belong to one thread at a time, and
-ending a transaction or closing a DB while another thread is inside a call on
-it is undefined behaviour.
+calls, so several threads can read and write the same DB concurrently (RocksDB
+is thread safe). Child objects are different:
+
+- `Snapshot`, `Iterator`, `Transaction` and `WriteBatch` are used by one thread
+  at a time. Do not close, release, commit or roll back one from a thread while
+  another thread is using it: that is a use after free.
+- `DB.close()` raises `RuntimeError` while another thread is inside a call on
+  the DB, so stop the workers before closing.
 
 ## Development
 
