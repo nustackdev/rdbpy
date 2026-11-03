@@ -420,3 +420,74 @@ def test_optimistic_survives_flush_with_history(path):
         assert db.get(b"b") == b"1"
     finally:
         db.close()
+
+
+def _options_file_value(dbpath, name):
+    import glob
+
+    f = sorted(glob.glob(dbpath + "/OPTIONS-*"))[-1]
+    for line in open(f):
+        line = line.strip()
+        if line.startswith(name + "="):
+            return int(line.split("=", 1)[1])
+    raise AssertionError(name)
+
+
+def test_optimistic_keeps_memtable_history_by_default(path):
+    p = path()
+    db = rdbpy.OptimisticTransactionDB(p, rdbpy.Options(create_if_missing=True))
+    db.close()
+    assert _options_file_value(p, "max_write_buffer_size_to_maintain") > 0
+    # An explicit size from the caller is kept as is.
+    p = path()
+    db = rdbpy.OptimisticTransactionDB(
+        p, rdbpy.Options(create_if_missing=True, max_write_buffer_size_to_maintain=1 << 20)
+    )
+    db.close()
+    assert _options_file_value(p, "max_write_buffer_size_to_maintain") == 1 << 20
+
+
+def test_optimistic_commit_after_flush_default_options(odb):
+    odb.put(b"a", b"1")
+    odb.flush()
+    t = odb.begin()
+    assert t.get_for_update(b"a") == b"1"
+    t.put(b"a", b"2")
+    t.commit()
+    assert odb.get(b"a") == b"2"
+    # A txn that outlives a flush still validates.
+    t = odb.begin()
+    assert t.get_for_update(b"a") == b"2"
+    for i in range(100):
+        odb.put(b"k%d" % i, b"x" * 100)
+    odb.flush()
+    t.put(b"a", b"3")
+    t.commit()
+    assert odb.get(b"a") == b"3"
+
+
+def test_optimistic_real_conflict_after_flush_is_busy(odb):
+    odb.put(b"a", b"1")
+    odb.flush()
+    t = odb.begin()
+    assert t.get_for_update(b"a") == b"1"
+    odb.put(b"a", b"outside")
+    odb.flush()  # the conflicting write is now only in memtable history / SST
+    t.put(b"a", b"2")
+    with pytest.raises(rdbpy.Busy):
+        t.commit()
+    assert odb.get(b"a") == b"outside"
+
+
+def test_get_for_update_validate_false_rejects_snapshot(anydb):
+    anydb.put(b"a", b"1")
+    t = anydb.begin()
+    s = anydb.snapshot()
+    try:
+        with pytest.raises(ValueError):
+            t.get_for_update(b"a", validate=False, snapshot=s)
+        assert t.get_for_update(b"a", validate=False) == b"1"
+        assert t.get_for_update(b"a", snapshot=s) == b"1"
+    finally:
+        t.rollback()
+        s.release()

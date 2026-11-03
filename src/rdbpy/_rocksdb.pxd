@@ -328,7 +328,15 @@ cdef extern from *:
                                                   const std::string& name,
                                                   rocksdb::OptimisticTransactionDB** out) {
         std::vector<rocksdb::ColumnFamilyDescriptor> cfs;
-        cfs.emplace_back(rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions(opts));
+        rocksdb::ColumnFamilyOptions cfo(opts);
+        // Optimistic commits validate against memtable history. With none kept,
+        // a commit after a flush fails with TryAgain. Unset (both 0) means keep
+        // max_write_buffer_number * write_buffer_size, as RocksDB itself does.
+        if (cfo.max_write_buffer_size_to_maintain == 0 &&
+            cfo.max_write_buffer_number_to_maintain == 0) {
+            cfo.max_write_buffer_size_to_maintain = -1;
+        }
+        cfs.emplace_back(rocksdb::kDefaultColumnFamilyName, cfo);
         std::vector<rocksdb::ColumnFamilyHandle*> handles;
         rocksdb::Status s = rocksdb::OptimisticTransactionDB::Open(
             rocksdb::DBOptions(opts), occ, name, cfs, &handles, out);

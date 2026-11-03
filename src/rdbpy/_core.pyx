@@ -1416,13 +1416,16 @@ cdef class Transaction:
         validate=True, raises Busy when the key changed after it (pessimistic)
         or fails the commit (optimistic). An explicit `snapshot=` only picks
         what is read. Lock waits raise TimedOut, cycles Deadlock.
-        validate=False reads latest and skips the check.
+        validate=False reads latest and skips the check; passing `snapshot=`
+        with it raises ValueError.
         """
         self._check()
         cdef r.ReadOptions ro
         cdef r.Slice k = _slice(key)
         cdef string value
         cdef r.Status st
+        if not validate and snapshot is not None:
+            raise ValueError("snapshot cannot be combined with validate=False")
         ro.snapshot = self._read_snapshot(snapshot) if validate else NULL
         _busy(self.db)
         try:
