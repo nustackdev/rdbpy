@@ -1220,9 +1220,11 @@ cdef class Transaction:
                        bint validate=True):
         """Read and lock (pessimistic) or track (optimistic) the key.
 
-        With a snapshot (txn's own or given) and validate=True, raises Busy
-        when the key changed after it. Lock waits raise TimedOut, cycles
-        Deadlock. validate=False reads latest and skips the snapshot check.
+        Conflict checks use the transaction's own snapshot: with one set and
+        validate=True, raises Busy when the key changed after it (pessimistic)
+        or fails the commit (optimistic). An explicit `snapshot=` only picks
+        what is read. Lock waits raise TimedOut, cycles Deadlock.
+        validate=False reads latest and skips the check.
         """
         self._check()
         cdef r.ReadOptions ro

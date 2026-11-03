@@ -1,60 +1,117 @@
 # rdbpy
 
-Python bindings for RocksDB with Cython - **batteries included!**
+Python bindings for RocksDB 6.29.5, written in Cython. Small surface, every
+read path takes a snapshot, every blocking call releases the GIL, every
+RocksDB status maps to a typed exception.
 
-**No RocksDB installation required** - everything is bundled in the wheel for Linux and macOS (Intel + Apple Silicon).
-
-## Installation
+**No RocksDB installation required**: wheels bundle RocksDB and the
+compression libraries for Linux and macOS (Intel + Apple Silicon).
 
 ```bash
 pip install rdbpython
 ```
-
-That's it! No need to install RocksDB or any compression libraries manually.
 
 ## Usage
 
 ```python
 import rdbpy
 
-# Open database
-options = rdbpy.Options(create_if_missing=True)
-db = rdbpy.DB('/path/to/db', options)
+db = rdbpy.DB("/path/to/db", rdbpy.Options(create_if_missing=True, compression="lz4"))
+db.put(b"k1", b"v1")
+db.get(b"k1")            # b"v1"; None when missing
+db.multi_get([b"k1", b"k2"])
+db.delete(b"k1")
 
-# Put/Get
-db.put(b'key', b'value')
-value = db.get(b'key')
+batch = rdbpy.WriteBatch()
+batch.put(b"a", b"1")
+batch.delete(b"b")
+db.write(batch)
 
-# Iterate
-it = db.iterkeys()
-it.seek_to_first()
-while it.valid():
-    print(it.key())
-    it.next()
+# snapshots: a point-in-time view accepted by every read
+with db.snapshot() as snap:
+    db.put(b"a", b"2")
+    db.get(b"a", snapshot=snap)        # b"1"
+    list(db.iterator(snapshot=snap))   # rows as of the snapshot
+
+# iterators: bounds, prefix, direction, keys only, batched rows
+for key, value in db.iterator(lower=b"a", upper=b"m"):
+    ...
+for key in db.iterator(prefix=b"user:", reverse=True, keys_only=True):
+    ...
+it = db.iterator()
+while rows := it.next_batch(1000):   # one native loop per batch, not per row
+    ...
+it.seek(b"m"); it.valid(); it.key(); it.value(); it.next(); it.seek_for_prev(b"m")
+
+db.close()
 ```
+
+### Transactions
+
+```python
+db = rdbpy.TransactionDB(path, rdbpy.Options(create_if_missing=True), lock_timeout_ms=1000)
+
+txn = db.begin(set_snapshot=True, deadlock_detect=True)
+txn.get(b"a")                 # reads at the txn snapshot, merges own writes
+txn.get_for_update(b"a")      # locks the row; Busy if it changed after the snapshot
+txn.put(b"a", b"1")           # locks the row; TimedOut after lock_timeout_ms
+txn.delete(b"b")
+for k, v in txn.iterator(prefix=b"a"):
+    ...
+txn.commit()                  # or txn.rollback(); both end the transaction
+
+odb = rdbpy.OptimisticTransactionDB(path)
+txn = odb.begin()
+txn.get_for_update(b"n")      # tracked read: commit fails with Busy if it changes
+txn.put(b"n", b"1")
+txn.commit()
+```
+
+Pessimistic (`TransactionDB`): `put`, `delete`, `get_for_update` take row locks
+and raise `TimedOut` when the wait exceeds `lock_timeout_ms` (per DB or per
+`begin`), `Deadlock` when `deadlock_detect=True` finds a cycle, `Busy` when a
+key changed after the transaction's snapshot. Optimistic
+(`OptimisticTransactionDB`): no locks, `commit()` raises `Busy` when a written
+or tracked key changed.
+
+### Errors
+
+All exceptions derive from `rdbpy.RocksDBError` (`.code`, `.subcode`,
+`.message`). Transaction outcomes: `Busy`, `Deadlock` (a `Busy`), `TimedOut`,
+`TryAgain`, `Expired`, `LockLimit`. Others: `Corruption`, `RocksIOError`,
+`InvalidArgument`, `NotSupported`, `Incomplete`, `Aborted`, ... A missing key
+is `None`, never an exception.
 
 ## Lifetimes and threads
 
-Iterators, snapshots and transactions point into native state owned by their parent:
+Iterators, snapshots and transactions point into native state owned by their
+parent:
 
-- `Transaction.commit()`, `rollback()`, `close()` and a successful `rollback_to_save_point()` invalidate every iterator created from that transaction. So does `TransactionDB.begin_transaction(reuse=txn)`.
-- `DB.close()` / `TransactionDB.close()` invalidate every iterator and snapshot of the DB and roll back any transaction that is still open.
-- Using an invalidated iterator, or a DB after `close()`, raises `RuntimeError`. Dropping an invalidated object is safe, in any order, including when gc frees it.
+- `Transaction.commit()` / `rollback()` end the transaction and invalidate
+  every iterator and snapshot view created from it. A failed commit is rolled
+  back.
+- `DB.close()` invalidates every iterator and snapshot of the DB and rolls
+  back any transaction still open.
+- Using an invalidated object raises `RuntimeError`. Dropping one is safe, in
+  any order, including when gc frees it.
 
-Threads: a transaction and its iterators belong to one thread and must not be shared between threads. rdbpy does no locking of its own and releases the GIL inside RocksDB calls, so ending a transaction, or closing a DB, while another thread is still inside a call on it or on its iterators is undefined behaviour and can crash. Close a DB only after every thread is done with it. A finalizer (a generator's `finally`, `__del__`) that ends a transaction runs on whichever thread triggers gc, so it counts as using the transaction from that thread. gc merely freeing objects on another thread is safe.
+Threads: rdbpy does no locking of its own and releases the GIL inside RocksDB
+calls, so several threads can read and write concurrently (RocksDB is thread
+safe), but a transaction and its iterators belong to one thread at a time, and
+ending a transaction or closing a DB while another thread is inside a call on
+it is undefined behaviour.
 
 ## Development
 
 ```bash
-# Setup
-make install
-
-# Build
-make build
-
-# Test
-make test
+uv venv && uv pip install -e . pytest           # needs RDBPY_DEP_DIR, see below
+RDBPY_DEP_DIR=~/opt/rocksdb-6.29.5 python setup.py build_ext --inplace
+pytest tests
 ```
+
+`RDBPY_DEP_DIR` points at a prefix with RocksDB 6.29.5 and the compression
+libraries (`scripts/build-rocksdb-linux.sh` / `-macos.sh` build one). The
+extension is linked with an rpath to `$RDBPY_DEP_DIR/lib`.
 
 ## License
 
