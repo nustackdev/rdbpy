@@ -46,8 +46,11 @@ fi
 # Compiler flags
 export CFLAGS="-fPIC -O3"
 export CXXFLAGS="-fPIC -O3"
-export LDFLAGS="-Wl,-rpath,'\$ORIGIN'"
 export PREFIX="$RDBPY_DEP_DIR"
+# Only librocksdb needs an rpath (its compression libs sit next to it). It goes
+# through make, which expands `$O`, so `$$` keeps a literal $ORIGIN; the quotes
+# stop the shell. A global LDFLAGS used to end up as the runpath "RIGIN".
+ROCKSDB_LDFLAGS="-Wl,-rpath,'\$\$ORIGIN'"
 
 # ==============================================================================
 # Build zlib
@@ -162,7 +165,7 @@ make static_lib shared_lib -j$(nproc) \
     DISABLE_WARNING_AS_ERROR=1 \
     DEBUG_LEVEL=0 \
     EXTRA_CXXFLAGS="$CXXFLAGS -include cstdint" \
-    EXTRA_LDFLAGS="$LDFLAGS"
+    EXTRA_LDFLAGS="$ROCKSDB_LDFLAGS"
 
 # Install
 cp librocksdb.a "$PREFIX/lib/"
